@@ -14,6 +14,8 @@ export function useDesignHostBridge(iframeRef) {
   const [selectedCommentId, setSelectedCommentId] = useState(null);
   const [pendingEvents, setPendingEvents] = useState(0);
   const [questionsOpen, setQuestionsOpen] = useState(false);
+  const [pages, setPages] = useState([]);
+  const [activePage, setActivePage] = useState(null);
 
   const tweaksOpenRef = useRef(false);
   const commentModeRef = useRef(false);
@@ -65,6 +67,12 @@ export function useDesignHostBridge(iframeRef) {
           // Edit panel closed itself via X (or X re-clicked Edit toggle inside
           // the iframe). Mirror it on the host so the Edit button flips off.
           setEditMode(false);
+          break;
+        case '__dc_pages':
+          if (Array.isArray(d.pages)) {
+            setPages(d.pages);
+            setActivePage(d.active ?? d.pages[0]?.id ?? null);
+          }
           break;
         case '__review_ready':
           setReviewReady(true);
@@ -207,8 +215,18 @@ export function useDesignHostBridge(iframeRef) {
     setEditMode(false);
     setComments([]);
     setSelectedCommentId(null);
+    setPages([]);
+    setActivePage(null);
     probeFrame();
   }, [probeFrame]);
+
+  const setActivePageRequest = useCallback(
+    (id) => {
+      setActivePage(id);
+      postToFrame({ type: '__dc_set_active_page', id });
+    },
+    [postToFrame],
+  );
 
   return {
     canvasPresent,
@@ -235,6 +253,9 @@ export function useDesignHostBridge(iframeRef) {
     requestSendComment,
     requestSendAllUnsent,
     fitToScreen,
+    pages,
+    activePage,
+    setActivePage: setActivePageRequest,
     questionsOpen,
     pollQuestions,
     onIframeLoad,

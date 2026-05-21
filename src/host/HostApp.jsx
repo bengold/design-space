@@ -13,8 +13,15 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { Separator } from '@/components/ui/separator';
+import { ChevronDown } from 'lucide-react';
 
 export default function HostApp() {
   const iframeRef = useRef(null);
@@ -65,6 +72,36 @@ export default function HostApp() {
             <Badge variant="outline" className="font-mono text-[11px] tracking-tight">
               designs/{activeDesign}
             </Badge>
+          )}
+          {bridge.pages.length > 1 && (
+            <DropdownMenu>
+              <DropdownMenuTrigger
+                render={
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    title={`Switch page (⌘[ / ⌘]) — ${bridge.pages.findIndex((p) => p.id === bridge.activePage) + 1} of ${bridge.pages.length}`}
+                  >
+                    <span>
+                      {bridge.pages.find((p) => p.id === bridge.activePage)?.title ?? '—'}
+                    </span>
+                    <ChevronDown data-icon="inline-end" />
+                  </Button>
+                }
+              />
+              <DropdownMenuContent align="start" className="min-w-[180px]">
+                {bridge.pages.map((p) => (
+                  <DropdownMenuItem
+                    key={p.id}
+                    onClick={() => bridge.setActivePage(p.id)}
+                    data-active={p.id === bridge.activePage || undefined}
+                    className="data-[active]:bg-muted data-[active]:font-medium"
+                  >
+                    {p.title}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
           )}
           <div className="flex-1" />
 

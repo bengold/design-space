@@ -212,6 +212,38 @@ function DesignCanvas({ children, minScale, maxScale, style }) {
     return () => document.removeEventListener('keydown', onKey);
   }, [isMultiPage, activePageId, pageNodes]);
 
+  // Sync the page list + active page up to the host, and accept page changes
+  // back. The host renders the picker in its toolbar; this iframe is the source
+  // of truth for the list because pages are declared in Design.jsx.
+  React.useEffect(() => {
+    if (!isMultiPage) return undefined;
+    const pages = pageNodes.map((p) => ({ id: p.props.id, title: p.props.title ?? p.props.id }));
+    try {
+      window.parent.postMessage({ type: '__dc_pages', pages, active: activePageId }, '*');
+    } catch {
+      /* ignore */
+    }
+    const onMsg = (e) => {
+      const d = e.data;
+      if (
+        d?.type === '__dc_set_active_page' &&
+        d.id &&
+        pageNodes.find((p) => p.props.id === d.id)
+      ) {
+        setActivePageId(d.id);
+      } else if (d?.type === '__dc_request_pages') {
+        // Host re-mounted (iframe reload). Re-post.
+        try {
+          window.parent.postMessage({ type: '__dc_pages', pages, active: activePageId }, '*');
+        } catch {
+          /* ignore */
+        }
+      }
+    };
+    window.addEventListener('message', onMsg);
+    return () => window.removeEventListener('message', onMsg);
+  }, [isMultiPage, activePageId, pageNodes]);
+
   // What actually renders inside the viewport: the active page's children in
   // multi-page mode, otherwise the original children.
   const renderedChildren = isMultiPage
@@ -337,13 +369,6 @@ function DesignCanvas({ children, minScale, maxScale, style }) {
       <DCViewport minScale={minScale} maxScale={maxScale} style={style}>
         {ready && renderedChildren}
       </DCViewport>
-      {isMultiPage && (
-        <DCPagePicker
-          pages={pageNodes.map((p) => ({ id: p.props.id, title: p.props.title ?? p.props.id }))}
-          active={activePageId}
-          onChange={setActivePageId}
-        />
-      )}
       {state.focus && registry[state.focus] && (
         <DCFocusOverlay
           entry={registry[state.focus]}
