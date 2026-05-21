@@ -96,7 +96,7 @@ export default function HostApp() {
             <>
               <Separator orientation="vertical" className="!h-5" />
               <Button
-                variant={bridge.commentMode ? 'secondary' : 'outline'}
+                variant={bridge.commentMode ? 'default' : 'outline'}
                 size="sm"
                 aria-pressed={bridge.commentMode}
                 onClick={() => {
@@ -120,7 +120,7 @@ export default function HostApp() {
                 )}
               </Button>
               <Button
-                variant={bridge.editMode ? 'secondary' : 'outline'}
+                variant={bridge.editMode ? 'default' : 'outline'}
                 size="sm"
                 aria-pressed={bridge.editMode}
                 onClick={bridge.toggleEditMode}
@@ -141,7 +141,7 @@ export default function HostApp() {
               <TooltipTrigger
                 render={
                   <Button
-                    variant={bridge.tweaksOpen ? 'secondary' : 'outline'}
+                    variant={bridge.tweaksOpen ? 'default' : 'outline'}
                     size="sm"
                     onClick={bridge.toggleTweaks}
                   >

@@ -61,6 +61,11 @@ export function useDesignHostBridge(iframeRef) {
         case '__edit_mode_dismissed':
           setTweaksOpen(false);
           break;
+        case '__edit_panel_dismissed':
+          // Edit panel closed itself via X (or X re-clicked Edit toggle inside
+          // the iframe). Mirror it on the host so the Edit button flips off.
+          setEditMode(false);
+          break;
         case '__review_ready':
           setReviewReady(true);
           break;

@@ -27,9 +27,14 @@ description: >-
 - `design_space_feedback_get` — comments + overrides + questions + `agent-feedback.md`
 - `design_space_inbox_get` — priority comments the user **sent to agent**
 - `design_space_events_poll` — `{ since: "<iso>" }` for new activity
+- `design_space_events_wait` — **blocking** poll. Returns when new events land in `events.jsonl`, or after `timeout` seconds. Use to loop on feedback without a fresh user prompt: `wait → handle → resolve → wait`.
 - `design_space_questions_ask` / `design_space_questions_wait`
 - `design_space_comments_resolve` — dismiss when done (`commentIds` optional = all open)
 - `design_space_feedback_export` — regenerate `agent-feedback.md`
+
+## Comment payload
+
+Each comment context now includes a `source` field with the JSX file + line that owns the targeted element (via React fiber `_debugSource`, e.g. `designs/demo/Design.jsx:42`). When the agent receives a `<mentioned-element>` block, use the `source:` line to jump directly to the relevant JSX — don't grep first.
 
 ## Human → agent loop
 

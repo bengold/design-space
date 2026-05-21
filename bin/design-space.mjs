@@ -44,6 +44,7 @@ Usage:
   design-space feedback export [--design <name>]
   design-space events poll [--design <name>] [--since <iso>] [--limit <n>]
   design-space mcp install <cursor|cursor-global|claude-desktop>
+  design-space doctor
 
 Agent workflow:
   1. scaffold + edit designs/<name>/Design.jsx
@@ -202,6 +203,100 @@ async function cmdQuestionsWait(name, timeoutSec) {
   }
 }
 
+// design-space doctor — quick diagnostic that prints ✓ / ✗ / ⚠ rows for the
+// things that go wrong most often. Exit non-zero if any ✗ rows are emitted.
+function cmdDoctor() {
+  let failed = 0;
+  let warned = 0;
+  const ok = (msg) => console.log(`  ✓ ${msg}`);
+  const bad = (msg) => {
+    failed += 1;
+    console.log(`  ✗ ${msg}`);
+  };
+  const warn = (msg) => {
+    warned += 1;
+    console.log(`  ⚠ ${msg}`);
+  };
+
+  console.log('Project layout');
+  if (fs.existsSync(DESIGNS)) ok(`designs/ exists at ${DESIGNS}`);
+  else bad(`designs/ missing — run from inside a Design Space repo`);
+
+  const active = readJson(ACTIVE_FILE, null)?.name;
+  if (active) ok(`active design: ${active}`);
+  else warn('designs/active.json missing or empty — first `design-space scaffold <name>`');
+
+  if (active) {
+    const dir = designDir(active);
+    const designJsx = path.join(dir, 'Design.jsx');
+    const tweaksFile = path.join(dir, 'tweaks.defaults.json');
+    if (fs.existsSync(designJsx)) ok(`${active}/Design.jsx`);
+    else bad(`${active}/Design.jsx missing`);
+    if (fs.existsSync(tweaksFile)) ok(`${active}/tweaks.defaults.json`);
+    else
+      warn(
+        `${active}/tweaks.defaults.json missing (designs may still render but tweaks won't persist)`,
+      );
+  }
+
+  console.log('\nMCP server bundle');
+  const bundle = path.join(ROOT, 'mcp-server', 'dist', 'index.mjs');
+  if (fs.existsSync(bundle)) {
+    const bundleSize = fs.statSync(bundle).size;
+    const srcMtime = fs.statSync(path.join(ROOT, 'mcp-server', 'index.mjs')).mtimeMs;
+    const bundleMtime = fs.statSync(bundle).mtimeMs;
+    if (bundleMtime < srcMtime)
+      warn('mcp-server/dist/index.mjs is older than the source — run `npm run build:mcp`');
+    else ok(`mcp-server/dist/index.mjs (${Math.round(bundleSize / 1024)} KB)`);
+  } else {
+    bad('mcp-server/dist/index.mjs not built — run `npm run build:mcp`');
+  }
+
+  console.log('\nNode + tooling');
+  const nodeVer = process.versions.node;
+  const major = Number(nodeVer.split('.')[0]);
+  if (major >= 20) ok(`node ${nodeVer}`);
+  else bad(`node ${nodeVer} — engines.node is >=20`);
+
+  const pkgPath = path.join(ROOT, 'package.json');
+  const pkg = readJson(pkgPath, {});
+  const vite = pkg.devDependencies?.vite;
+  const tailwind = pkg.dependencies?.tailwindcss || pkg.devDependencies?.tailwindcss;
+  if (vite) ok(`vite ${vite}`);
+  else warn('vite missing from devDependencies');
+  if (tailwind) ok(`tailwindcss ${tailwind}`);
+  else warn('tailwindcss missing');
+
+  console.log('\nClaude Code plugin');
+  const pluginManifest = path.join(ROOT, '.claude-plugin', 'plugin.json');
+  if (fs.existsSync(pluginManifest)) {
+    const manifest = readJson(pluginManifest, {});
+    ok(`.claude-plugin/plugin.json (v${manifest.version || '?'})`);
+    const hookScript = path.join(ROOT, 'hooks', 'poll-comments.mjs');
+    if (fs.existsSync(hookScript)) ok('hooks/poll-comments.mjs');
+    else warn('hooks/poll-comments.mjs missing — UserPromptSubmit hook would 404');
+  } else {
+    warn('.claude-plugin/plugin.json missing — plugin install path unavailable');
+  }
+  const homeCache = path.join(
+    process.env.HOME || '',
+    '.claude',
+    'plugins',
+    'cache',
+    'design-space',
+  );
+  if (fs.existsSync(homeCache)) ok(`installed at ${homeCache}`);
+  else warn('plugin not installed locally — run /plugin marketplace add bengold/design-space');
+
+  console.log('\nHost integrations');
+  const cursorFile = path.join(ROOT, '.cursor', 'mcp.json');
+  if (fs.existsSync(cursorFile)) ok('.cursor/mcp.json present');
+  else warn('No .cursor/mcp.json — run `design-space mcp install cursor` to register');
+
+  console.log(`\n${failed ? '✗' : warned ? '⚠' : '✓'} ${failed} failed, ${warned} warning(s)`);
+  if (failed) process.exit(1);
+}
+
 function cmdMcpInstall(target) {
   const serverPath = path.join(ROOT, 'mcp-server', 'index.mjs');
   const block = {
@@ -265,6 +360,9 @@ try {
     switch (cmd) {
       case 'dev':
         cmdDev(rest);
+        break;
+      case 'doctor':
+        cmdDoctor();
         break;
       case 'mcp':
         if (sub === 'install') {

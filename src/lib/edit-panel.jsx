@@ -581,10 +581,19 @@ function EditPanelBody({ el, overrides, onApply, onClose }) {
   const textChanged = text !== initialTextRef.current;
   const cssError = useMemo(() => validateCssText(cssText), [cssText]);
 
-  // No auto-persist. The user must explicitly Apply or Cancel — the live
-  // preview <style> tag shows changes immediately but nothing hits disk until
-  // they confirm. Cancel discards local state; closing the Sheet without
-  // Apply/Cancel is intentionally disabled (locked panel).
+  // Tweaks-style auto-persist: each change debounces a write to disk via onApply.
+  useEffect(() => {
+    if (!initialized.current) return;
+    const t = setTimeout(() => {
+      onApply(ref, {
+        styles,
+        cssText: cssText.trim() || undefined,
+        textContent: textChanged ? text : undefined,
+      });
+    }, 250);
+    return () => clearTimeout(t);
+  }, [ref, styles, cssText, text, textChanged, onApply]);
+
   const setStyle = (key, value) => {
     setStyles((s) => {
       if (value === '' || value == null) {
@@ -608,35 +617,9 @@ function EditPanelBody({ el, overrides, onApply, onClose }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [styles.fontFamily, el]);
 
-  const apply = () => {
-    onApply(ref, {
-      styles,
-      cssText: cssText.trim() || undefined,
-      textContent: textChanged ? text : undefined,
-    });
-  };
-
-  const cancel = () => {
-    // Discard any in-flight edits — the live-preview style tag and any text
-    // mutation are both keyed off the EditPanel mount, so closing reverts them.
-    onClose();
-  };
-
-  const hasChanges = Object.keys(styles).length > 0 || cssText.trim() !== '' || textChanged;
-
   return (
     <>
       {previewStyle}
-
-      {/* Header — no close button: panel is locked until Apply or Cancel. */}
-      <div className="flex items-center justify-between border-b border-border px-4 py-3">
-        <h2 className="text-sm font-semibold text-foreground">Edit</h2>
-        {hasChanges && (
-          <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
-            Unsaved
-          </span>
-        )}
-      </div>
 
       {/* Scrollable body */}
       <ScrollArea className="min-h-0 flex-1">
@@ -870,26 +853,98 @@ function EditPanelBody({ el, overrides, onApply, onClose }) {
           </Collapsible>
         </div>
       </ScrollArea>
-
-      {/* Footer — explicit commit/discard, no auto-close. */}
-      <div className="flex gap-2 border-t border-border bg-background px-4 py-3">
-        <Button variant="secondary" onClick={cancel} className="flex-1">
-          Cancel
-        </Button>
-        <Button onClick={apply} className="flex-1" disabled={!hasChanges || !!cssError}>
-          Apply
-        </Button>
-      </div>
     </>
   );
 }
 
-export function EditPanel({ el, overrides, onApply, onClose }) {
-  const open = !!el;
-  // Locked Sheet: outside clicks and Escape are swallowed. Closing only happens
-  // when the body's Apply / Cancel buttons explicitly call onClose.
+// Canvas-wide controls shown when Edit mode is on but nothing is selected.
+// Persists to overrides.json's `canvas` field, which OverridesInjector emits
+// as a :root rule so background/font/base-size apply globally.
+const CANVAS_FONT_OPTIONS = [
+  '-apple-system',
+  'ui-sans-serif, system-ui, sans-serif',
+  'Georgia, "Times New Roman", serif',
+  'ui-monospace, monospace',
+];
+
+function CanvasPanelBody({ canvasStyles, onApplyCanvas }) {
+  const [draft, setDraft] = useState(canvasStyles || {});
+
+  useEffect(() => {
+    setDraft(canvasStyles || {});
+  }, [canvasStyles]);
+
+  const initialized = useRef(false);
+  useEffect(() => {
+    if (!initialized.current) {
+      initialized.current = true;
+      return undefined;
+    }
+    const t = setTimeout(() => {
+      onApplyCanvas(draft);
+    }, 250);
+    return () => clearTimeout(t);
+  }, [draft, onApplyCanvas]);
+
+  const set = (key, value) => {
+    setDraft((d) => {
+      const next = { ...d };
+      if (value === '' || value == null) delete next[key];
+      else next[key] = value;
+      return next;
+    });
+  };
+
   return (
-    <Sheet open={open} onOpenChange={() => {}} modal={false}>
+    <ScrollArea className="min-h-0 flex-1">
+      <div className="flex flex-col gap-4 p-4">
+        <section className="flex flex-col gap-2">
+          <SectionLabel>Canvas</SectionLabel>
+          <p className="px-1 text-[11px] leading-snug text-muted-foreground">
+            Click an element in the preview to edit it directly. These controls apply to the whole
+            canvas (every artboard inherits unless overridden).
+          </p>
+          <ColorRow
+            label="Background"
+            full
+            value={draft.backgroundColor}
+            onChange={(v) => set('backgroundColor', v)}
+          />
+          <SelectRow
+            label="Font"
+            full
+            value={draft.fontFamily}
+            options={CANVAS_FONT_OPTIONS}
+            onChange={(v) => set('fontFamily', v)}
+          />
+          <NumericRow
+            label="Base size"
+            full
+            value={draft.fontSize}
+            onChange={(v) => set('fontSize', v)}
+            styleKey="fontSize"
+          />
+          <ColorRow label="Text color" full value={draft.color} onChange={(v) => set('color', v)} />
+        </section>
+      </div>
+    </ScrollArea>
+  );
+}
+
+export function EditPanel({
+  open,
+  el,
+  overrides,
+  canvasStyles,
+  onApply,
+  onApplyCanvas,
+  onClearSelection,
+  onClose,
+}) {
+  // Sheet stays open as long as Edit mode is on; closing only fires when the
+  // user clicks the X (or toggles Edit off in the host toolbar).
+  return (
+    <Sheet open={!!open} onOpenChange={(o) => !o && onClose()} modal={false}>
       <SheetContent
         side="right"
         showOverlay={false}
@@ -899,9 +954,35 @@ export function EditPanel({ el, overrides, onApply, onClose }) {
         onInteractOutside={(e) => e.preventDefault?.()}
         className="ds-review-ui flex w-[340px] flex-col gap-0 p-0 sm:w-[360px]"
       >
+        <div className="flex items-center justify-between border-b border-border px-4 py-3">
+          <h2 className="text-sm font-semibold text-foreground">{el ? 'Edit element' : 'Edit'}</h2>
+          <div className="flex items-center gap-1">
+            {el && (
+              <button
+                type="button"
+                onClick={onClearSelection}
+                title="Back to canvas settings"
+                className="rounded-md px-2 py-1 text-[11px] font-medium text-muted-foreground hover:bg-muted hover:text-foreground"
+              >
+                Canvas
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label="Close"
+              className="grid size-7 place-items-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
+            >
+              <X className="size-4" />
+            </button>
+          </div>
+        </div>
+
         {el ? (
           <EditPanelBody el={el} overrides={overrides} onApply={onApply} onClose={onClose} />
-        ) : null}
+        ) : (
+          <CanvasPanelBody canvasStyles={canvasStyles} onApplyCanvas={onApplyCanvas} />
+        )}
       </SheetContent>
     </Sheet>
   );

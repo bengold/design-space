@@ -35,8 +35,11 @@ export function useDesignReview() {
   return useContext(ReviewCtx);
 }
 
-async function persistOverrides(designName, byRef) {
-  await writeDesignFile(`designs/${designName}/overrides.json`, { byRef });
+async function persistOverrides(designName, byRef, canvas) {
+  await writeDesignFile(`designs/${designName}/overrides.json`, {
+    byRef,
+    canvas: canvas || {},
+  });
 }
 
 function commentContexts(comment) {
@@ -45,15 +48,24 @@ function commentContexts(comment) {
   return [];
 }
 
-function OverridesInjector({ byRef }) {
-  const css = useMemo(
-    () =>
-      Object.entries(byRef || {})
-        .map(([ref, o]) => stylesToCssRule(ref, o))
-        .filter(Boolean)
-        .join('\n'),
-    [byRef],
-  );
+function canvasRule(canvas) {
+  if (!canvas) return '';
+  const decl = Object.entries(canvas)
+    .filter(([, v]) => v != null && String(v).trim() !== '')
+    .map(([k, v]) => `${k.replace(/[A-Z]/g, (m) => `-${m.toLowerCase()}`)}:${v}`)
+    .join(';');
+  return decl ? `:root,body,.design-canvas{${decl}}` : '';
+}
+
+function OverridesInjector({ byRef, canvas }) {
+  const css = useMemo(() => {
+    const perRef = Object.entries(byRef || {})
+      .map(([ref, o]) => stylesToCssRule(ref, o))
+      .filter(Boolean)
+      .join('\n');
+    const rootRule = canvasRule(canvas);
+    return [rootRule, perRef].filter(Boolean).join('\n');
+  }, [byRef, canvas]);
 
   // Resolve each saved ref to its element via the structural path and stamp the
   // data-ds-ref attribute back on so the CSS rule matches on a fresh page load.
@@ -383,6 +395,10 @@ export function DesignReviewShell({ designName, children }) {
   const [editMode, setEditMode] = useState(false);
   const [comments, setComments] = useState([]);
   const [overrides, setOverrides] = useState({});
+  const [canvasStyles, setCanvasStyles] = useState({});
+  // Undo stack — each entry is a full snapshot of { byRef, canvas } from BEFORE
+  // an applyOverride/applyCanvas call. Cmd+Z pops the latest and restores it.
+  const undoStackRef = useRef([]);
   const [questions, setQuestions] = useState(null);
   const [pendingContexts, setPendingContexts] = useState(null);
   const [editTarget, setEditTarget] = useState(null);
@@ -425,10 +441,11 @@ export function DesignReviewShell({ designName, children }) {
 
   const reload = useCallback(async () => {
     const cData = await fetchDesignJson(designName, 'comments.json', { comments: [] });
-    const oData = await fetchDesignJson(designName, 'overrides.json', { byRef: {} });
+    const oData = await fetchDesignJson(designName, 'overrides.json', { byRef: {}, canvas: {} });
     const qData = await fetchDesignJson(designName, 'questions.json', null);
     setComments(cData.comments || []);
     setOverrides(oData.byRef || {});
+    setCanvasStyles(oData.canvas || {});
     setQuestions(qData);
   }, [designName]);
 
@@ -664,15 +681,57 @@ export function DesignReviewShell({ designName, children }) {
 
   const applyOverride = useCallback(
     async (ref, patch) => {
+      // Push current state before mutating, so Cmd+Z can revert this edit.
+      undoStackRef.current.push({ byRef: overrides, canvas: canvasStyles });
       const next = { ...overrides, [ref]: { ...overrides[ref], ...patch } };
       setOverrides(next);
-      setEditTarget(null);
-      await persistOverrides(designName, next);
+      await persistOverrides(designName, next, canvasStyles);
       await notifyEvent('override.updated', { ref, keys: Object.keys(patch.styles || {}) });
       window.parent.postMessage({ type: '__overrides_updated', designName }, '*');
     },
-    [designName, overrides, notifyEvent],
+    [designName, overrides, canvasStyles, notifyEvent],
   );
+
+  const applyCanvasStyle = useCallback(
+    async (patch) => {
+      undoStackRef.current.push({ byRef: overrides, canvas: canvasStyles });
+      const next = { ...canvasStyles, ...patch };
+      // Strip empty keys so they don't pollute the persisted JSON.
+      for (const k of Object.keys(next)) {
+        if (next[k] === '' || next[k] == null) delete next[k];
+      }
+      setCanvasStyles(next);
+      await persistOverrides(designName, overrides, next);
+      await notifyEvent('canvas.updated', { keys: Object.keys(patch) });
+      window.parent.postMessage({ type: '__overrides_updated', designName }, '*');
+    },
+    [designName, overrides, canvasStyles, notifyEvent],
+  );
+
+  const undoLastEdit = useCallback(() => {
+    const prev = undoStackRef.current.pop();
+    if (!prev) return false;
+    setOverrides(prev.byRef || {});
+    setCanvasStyles(prev.canvas || {});
+    persistOverrides(designName, prev.byRef || {}, prev.canvas || {}).catch(() => {});
+    window.parent.postMessage({ type: '__overrides_updated', designName }, '*');
+    return true;
+  }, [designName]);
+
+  // Cmd+Z / Ctrl+Z when Edit mode is active reverts the most recent applied edit.
+  useEffect(() => {
+    if (!editMode) return undefined;
+    const onKey = (e) => {
+      const meta = e.metaKey || e.ctrlKey;
+      if (!meta || e.key.toLowerCase() !== 'z' || e.shiftKey) return;
+      // Don't hijack undo while the user is typing in a panel field.
+      if (e.target?.closest?.('input, textarea, [contenteditable="true"]')) return;
+      e.preventDefault();
+      undoLastEdit();
+    };
+    document.addEventListener('keydown', onKey, true);
+    return () => document.removeEventListener('keydown', onKey, true);
+  }, [editMode, undoLastEdit]);
 
   const pickMode = commentMode || editMode;
 
@@ -723,7 +782,7 @@ export function DesignReviewShell({ designName, children }) {
 
   return (
     <ReviewCtx.Provider value={ctxValue}>
-      <OverridesInjector byRef={overrides} />
+      <OverridesInjector byRef={overrides} canvas={canvasStyles} />
       {children}
       {selectionOverlay}
       <CommentPinLayer comments={comments} highlighted={highlighted} onSelect={openCommentPanel} />
@@ -757,10 +816,20 @@ export function DesignReviewShell({ designName, children }) {
       />
 
       <EditPanel
+        open={editMode}
         el={editTarget}
         overrides={overrides}
+        canvasStyles={canvasStyles}
         onApply={applyOverride}
-        onClose={() => setEditTarget(null)}
+        onApplyCanvas={applyCanvasStyle}
+        onClearSelection={() => setEditTarget(null)}
+        onClose={() => {
+          // X / Edit-toggle-off: leave Edit mode entirely. Host listens for
+          // __edit_panel_dismissed and flips its commentMode/editMode state.
+          setEditTarget(null);
+          setEditMode(false);
+          window.parent.postMessage({ type: '__edit_panel_dismissed' }, '*');
+        }}
       />
 
       {showHint && <ModeHint commentMode={commentMode} />}

@@ -71,6 +71,33 @@ function reactChain(el) {
   return names.length ? names.join(' > ') : null;
 }
 
+// Walk React fiber for `_debugSource`. Vite + @vitejs/plugin-react preserves
+// this in dev — it tells the agent the exact JSX file:line the comment targets,
+// so it can edit without grepping. Strips the absolute project prefix when we
+// can spot a `designs/<name>` segment, so the output is repo-relative.
+function reactSource(el) {
+  const fiberKey = Object.keys(el).find((k) => k.startsWith('__reactFiber$'));
+  if (!fiberKey) return null;
+  let fiber = el[fiberKey];
+  let hops = 0;
+  while (fiber && hops < 24) {
+    const src = fiber._debugSource;
+    if (src?.fileName) {
+      const file = String(src.fileName);
+      const designsIdx = file.lastIndexOf('/designs/');
+      const srcIdx = file.lastIndexOf('/src/');
+      const rel =
+        designsIdx >= 0 ? file.slice(designsIdx + 1) : srcIdx >= 0 ? file.slice(srcIdx + 1) : file;
+      const line = Number.isFinite(src.lineNumber) ? `:${src.lineNumber}` : '';
+      const col = Number.isFinite(src.columnNumber) ? `:${src.columnNumber}` : '';
+      return `${rel}${line}${col}`;
+    }
+    fiber = fiber.return;
+    hops += 1;
+  }
+  return null;
+}
+
 function domChain(el) {
   const parts = [];
   let node = el;
@@ -107,6 +134,7 @@ export function describeElement(el) {
     ref,
     anchor: ref,
     react: reactChain(el),
+    source: reactSource(el),
     dom: domChain(el),
     tag: el.tagName.toLowerCase(),
     text: text || null,
@@ -122,6 +150,7 @@ export function formatMentionedElement(ctx, commentText) {
     ctx.artboardId
       ? `artboard: ${ctx.sectionId || 'main'}/${ctx.artboardId}${ctx.artboardLabel ? ` (${ctx.artboardLabel})` : ''}`
       : null,
+    ctx.source ? `source: ${ctx.source}` : null,
     ctx.react ? `react: ${ctx.react}` : null,
     `dom: ${ctx.dom}`,
     `id: ${ctx.ref}`,

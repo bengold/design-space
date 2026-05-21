@@ -147,6 +147,24 @@ export default defineConfig({
   },
   server: {
     fs: { allow: [ROOT] },
+    // The preview writes its own JSON/MD state through /api/write — those
+    // files aren't modules, so Vite's HMR falls back to a full page reload
+    // whenever they change. Excluding them keeps every comment / override /
+    // tweak edit out of the watch loop.
+    watch: {
+      ignored: [
+        '**/designs/*/events.jsonl',
+        '**/designs/*/comments.json',
+        '**/designs/*/overrides.json',
+        '**/designs/*/tweaks.json',
+        '**/designs/*/questions.json',
+        '**/designs/*/agent-feedback.md',
+        '**/designs/*/agent-inbox.json',
+        '**/designs/*/agent-inbox.md',
+        '**/public/.design-canvas.state.json',
+        '**/.claude/**',
+      ],
+    },
   },
   build: {
     rollupOptions: {

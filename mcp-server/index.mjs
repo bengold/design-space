@@ -13,6 +13,7 @@ import {
   openQuestions,
   readEvents,
   resolveCommentsFs,
+  waitForEvents,
   waitForQuestions,
 } from '../lib/design-space-core.mjs';
 
@@ -48,6 +49,22 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
           design: { type: 'string' },
           since: { type: 'string', description: 'ISO timestamp; omit to get all events' },
           limit: { type: 'number', description: 'Max events to return (default 50)' },
+        },
+      },
+    },
+    {
+      name: 'design_space_events_wait',
+      description:
+        'Block until new comments/edits land in events.jsonl. Returns the batch and lets the agent loop on user feedback without waiting for a prompt. Timeout in seconds (default 600).',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          design: { type: 'string' },
+          since: {
+            type: 'string',
+            description: 'ISO timestamp; omit to start watching from now',
+          },
+          timeout: { type: 'number', description: 'Seconds to block before returning empty' },
         },
       },
     },
@@ -130,6 +147,13 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
         let events = readEvents(design, since);
         if (events.length > limit) events = events.slice(-limit);
         return text({ design, since, count: events.length, events });
+      }
+
+      case 'design_space_events_wait': {
+        const since = args?.since || null;
+        const timeoutSec = args?.timeout ?? 600;
+        const events = await waitForEvents(design, { since, timeoutSec });
+        return text({ design, since, timedOut: events.length === 0, count: events.length, events });
       }
 
       case 'design_space_questions_ask': {

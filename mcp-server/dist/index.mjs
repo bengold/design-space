@@ -15473,6 +15473,7 @@ function formatMentionedElementBlock(ctx, commentText) {
   const lines = [
     "<mentioned-element>",
     ctx?.artboardId ? `artboard: ${ctx.sectionId || "main"}/${ctx.artboardId}${ctx.artboardLabel ? ` (${ctx.artboardLabel})` : ""}` : null,
+    ctx?.source ? `source: ${ctx.source}` : null,
     ctx?.react ? `react: ${ctx.react}` : null,
     ctx?.dom ? `dom: ${ctx.dom}` : null,
     ctx?.ref ? `id: ${ctx.ref}` : null,
@@ -15701,6 +15702,17 @@ async function waitForQuestions(name, timeoutSec = 600, { signal } = {}) {
     `Timed out after ${timeoutSec}s waiting for designs/${name}/questions.json status "answered"`
   );
 }
+async function waitForEvents(name, { since = null, timeoutSec = 600 } = {}) {
+  const startMs = Date.now();
+  const watermark = since || (/* @__PURE__ */ new Date()).toISOString();
+  const deadline = startMs + timeoutSec * 1e3;
+  while (Date.now() < deadline) {
+    const events = readEvents(name, watermark);
+    if (events.length) return events;
+    sleepMs(1e3);
+  }
+  return [];
+}
 function exportAgentFeedback(name) {
   const comments = readJson(designPath(name, "comments.json"), { comments: [] }).comments || [];
   const questions = readJson(designPath(name, "questions.json"), null);
@@ -15757,6 +15769,21 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
           design: { type: "string" },
           since: { type: "string", description: "ISO timestamp; omit to get all events" },
           limit: { type: "number", description: "Max events to return (default 50)" }
+        }
+      }
+    },
+    {
+      name: "design_space_events_wait",
+      description: "Block until new comments/edits land in events.jsonl. Returns the batch and lets the agent loop on user feedback without waiting for a prompt. Timeout in seconds (default 600).",
+      inputSchema: {
+        type: "object",
+        properties: {
+          design: { type: "string" },
+          since: {
+            type: "string",
+            description: "ISO timestamp; omit to start watching from now"
+          },
+          timeout: { type: "number", description: "Seconds to block before returning empty" }
         }
       }
     },
@@ -15830,6 +15857,12 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
         let events = readEvents(design, since);
         if (events.length > limit) events = events.slice(-limit);
         return text({ design, since, count: events.length, events });
+      }
+      case "design_space_events_wait": {
+        const since = args?.since || null;
+        const timeoutSec = args?.timeout ?? 600;
+        const events = await waitForEvents(design, { since, timeoutSec });
+        return text({ design, since, timedOut: events.length === 0, count: events.length, events });
       }
       case "design_space_questions_ask": {
         const payload = openQuestions(design, args.payload);
