@@ -1,0 +1,12 @@
+node_modules
+dist
+.DS_Store
+designs/*/tweaks.json
+designs/*/comments.json
+designs/*/overrides.json
+designs/*/events.jsonl
+designs/*/agent-inbox.json
+# Per-user MCP config (use `design-space mcp install cursor` to generate).
+.cursor/mcp.json
+# Stray Vite build chunks at the repo root.
+/QuestionsViewer-*.js

@@ -1,0 +1,8 @@
+node_modules
+dist
+package-lock.json
+public/.design-canvas.state.json
+designs/*/agent-feedback.md
+designs/*/agent-inbox.md
+designs/*/events.jsonl
+docs/claude-design-prompt.extracted.md

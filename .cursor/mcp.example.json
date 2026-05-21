@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "design-space": {
+      "command": "node",
+      "args": ["<absolute path to repo>/mcp-server/index.mjs"],
+      "env": {
+        "DESIGN_SPACE_ROOT": "<absolute path to repo>"
+      }
+    }
+  }
+}

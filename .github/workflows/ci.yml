@@ -1,0 +1,47 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [20, 22]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+
+      - run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Format check
+        run: npm run format:check
+
+      - name: Validate all designs
+        run: |
+          shopt -s nullglob
+          for dir in designs/*/; do
+            name="$(basename "$dir")"
+            [[ "$name" == _* ]] && continue
+            echo "::group::validate $name"
+            npx design-space validate "$name"
+            echo "::endgroup::"
+          done
+
+      - name: Test
+        run: npm test
+
+      - name: Build
+        run: npm run build

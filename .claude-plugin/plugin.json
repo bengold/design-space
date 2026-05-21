@@ -1,0 +1,17 @@
+{
+  "name": "design-space",
+  "description": "Local Claude Design host — edit designs/<name>/Design.jsx, read human comments/overrides, ask refinement questions, poll review events.",
+  "version": "0.2.0",
+  "homepage": "https://github.com/bengold/design-space",
+  "repository": "https://github.com/bengold/design-space",
+  "license": "MIT",
+  "mcpServers": {
+    "design-space": {
+      "command": "node",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/mcp-server/index.mjs"],
+      "env": {
+        "DESIGN_SPACE_ROOT": "${CLAUDE_PROJECT_DIR}"
+      }
+    }
+  }
+}
