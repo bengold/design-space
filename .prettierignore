@@ -1,5 +1,6 @@
 node_modules
 dist
+mcp-server/dist
 package-lock.json
 public/.design-canvas.state.json
 designs/*/agent-feedback.md

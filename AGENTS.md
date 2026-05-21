@@ -148,8 +148,14 @@ Pick the presentation format by what you are exploring:
 - **Artboards are static frames, not scroll regions.** Do not use `height: 100%` with `overflow: auto/scroll` on inner content. Size the artboard to the design (`width` / `height` props), or let content define height — never the reverse.
 - **Stable `id`s** on every artboard and section; labels can change, ids should not (canvas state keys off them).
 - **Typical mobile frames:** 260×480, 280×560, 300×420 — adjust per content.
-- **Post-its:** `<DCPostIt top left right bottom rotate width>` for annotations on the canvas grid.
 - **Human actions** (drag-reorder, rename, delete, focus) persist in `.design-canvas.state.json` — read with `state get` after review sessions.
+
+## Annotating designs
+
+Agents can drop sticky-note style annotations onto the canvas with `<DCPostIt top left right bottom rotate width>...</DCPostIt>` (imported from `src/lib/design-canvas.jsx`). Place them inside a `<DCSection>` next to the artboards they describe; positioning props are pixel offsets relative to the section grid.
+
+- **Use sparingly:** post-its are a tool for leaving the user a note (open questions, callouts, “check this variant”), not for permanent design labels — that is what artboard `label` props are for.
+- **Demo is clean on purpose:** `designs/demo/Design.jsx` ships with **no** `<DCPostIt>` so a fresh canvas renders without yellow stickies. Add them only when you have something to say, and remove them once acknowledged.
 
 ## Tweaks panel (adapted from Claude Design)
 

@@ -8,6 +8,7 @@ export default [
     ignores: [
       'node_modules/**',
       'dist/**',
+      'mcp-server/dist/**',
       'public/**',
       // Stray Vite build chunks at the repo root, if any leaked out of dist/.
       'QuestionsViewer-*.js',

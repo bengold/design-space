@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
+import tailwindcss from '@tailwindcss/vite';
 import {
   getRoot,
   isAllowedAppend,
@@ -138,7 +139,12 @@ function persistPlugin() {
 }
 
 export default defineConfig({
-  plugins: [react(), persistPlugin()],
+  plugins: [react(), tailwindcss(), persistPlugin()],
+  resolve: {
+    alias: {
+      '@': path.join(ROOT, 'src'),
+    },
+  },
   server: {
     fs: { allow: [ROOT] },
   },

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { cn } from '@/lib/utils';
 import {
   collectTargetsInRect,
   describeElement,
@@ -9,52 +10,119 @@ import {
   isReviewTarget,
 } from './elementContext.js';
 
-const OUTLINE_HOVER = '2px dashed #4a9eff';
-const OUTLINE_SELECT = '2px solid #D97757';
-const FILL_SELECT = 'rgba(217, 119, 87, 0.12)';
-
-function SelectionBox({ el, variant }) {
-  const [box, setBox] = useState(null);
+// Tracks an element's viewport rect through canvas pan/zoom transforms.
+// ResizeObserver doesn't fire on transform changes and floating-ui's autoUpdate
+// needs both ref+floating elements, so just rAF-poll while mounted.
+function useElementRect(el) {
+  const [rect, setRect] = useState(null);
   useEffect(() => {
     if (!el) {
-      setBox(null);
+      setRect(null);
       return undefined;
     }
-    const update = () => {
+    let rafId;
+    const tick = () => {
       const r = el.getBoundingClientRect();
-      setBox({ top: r.top, left: r.left, width: r.width, height: r.height });
+      setRect((prev) => {
+        if (
+          prev &&
+          prev.top === r.top &&
+          prev.left === r.left &&
+          prev.width === r.width &&
+          prev.height === r.height
+        ) {
+          return prev;
+        }
+        return { top: r.top, left: r.left, width: r.width, height: r.height };
+      });
+      rafId = requestAnimationFrame(tick);
     };
-    update();
-    const ro = new ResizeObserver(update);
-    ro.observe(el);
-    window.addEventListener('scroll', update, true);
-    window.addEventListener('resize', update);
-    return () => {
-      ro.disconnect();
-      window.removeEventListener('scroll', update, true);
-      window.removeEventListener('resize', update);
-    };
+    rafId = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(rafId);
   }, [el]);
+  return rect;
+}
 
-  if (!box || box.width < 1 || box.height < 1) return null;
-  const isSelect = variant === 'select';
+function SelectionBox({ el, variant }) {
+  const rect = useElementRect(el);
+  if (!rect || rect.width < 1 || rect.height < 1) return null;
   return (
     <div
-      className="ds-review-ui"
-      style={{
-        position: 'fixed',
-        pointerEvents: 'none',
-        top: box.top,
-        left: box.left,
-        width: box.width,
-        height: box.height,
-        outline: isSelect ? OUTLINE_SELECT : OUTLINE_HOVER,
-        background: isSelect ? FILL_SELECT : 'transparent',
-        zIndex: 99990,
-        boxSizing: 'border-box',
-      }}
+      className={cn(
+        'pointer-events-none fixed z-[99990] box-border ds-review-ui',
+        // Figma-style outline only — no fill — so the element underneath stays
+        // visible. Hover uses a thin dashed line; select uses a solid 1px.
+        variant === 'select'
+          ? 'outline-[1.5px] outline-offset-0 outline-sky-500'
+          : 'outline-1 outline-dashed outline-sky-400/80',
+      )}
+      style={{ top: rect.top, left: rect.left, width: rect.width, height: rect.height }}
     />
   );
+}
+
+function useMarquee({ active, onCommit }) {
+  const stateRef = useRef(null);
+  const [box, setBox] = useState(null);
+
+  useEffect(() => {
+    if (!active) return undefined;
+
+    const onDown = (e) => {
+      if (e.button !== 0 || e.target.closest('.ds-review-ui')) return;
+      if (!e.target.closest('.design-canvas, #root')) return;
+      if (isReviewTarget(e.target)) return;
+      stateRef.current = { x0: e.clientX, y0: e.clientY, x1: e.clientX, y1: e.clientY };
+      setBox({ left: e.clientX, top: e.clientY, width: 0, height: 0 });
+    };
+
+    const onMove = (e) => {
+      if (!stateRef.current) return;
+      stateRef.current.x1 = e.clientX;
+      stateRef.current.y1 = e.clientY;
+      const { x0, y0, x1, y1 } = stateRef.current;
+      setBox({
+        left: Math.min(x0, x1),
+        top: Math.min(y0, y1),
+        width: Math.abs(x1 - x0),
+        height: Math.abs(y1 - y0),
+      });
+    };
+
+    const onUp = () => {
+      const s = stateRef.current;
+      stateRef.current = null;
+      setBox(null);
+      if (!s) return;
+      const { x0, y0, x1, y1 } = s;
+      if (Math.abs(x1 - x0) < 6 && Math.abs(y1 - y0) < 6) return;
+      const hits = collectTargetsInRect({
+        left: Math.min(x0, x1),
+        top: Math.min(y0, y1),
+        right: Math.max(x0, x1),
+        bottom: Math.max(y0, y1),
+      });
+      if (hits.length) onCommit(hits);
+    };
+
+    document.addEventListener('mousedown', onDown, true);
+    document.addEventListener('mousemove', onMove, true);
+    document.addEventListener('mouseup', onUp, true);
+    return () => {
+      document.removeEventListener('mousedown', onDown, true);
+      document.removeEventListener('mousemove', onMove, true);
+      document.removeEventListener('mouseup', onUp, true);
+      stateRef.current = null;
+    };
+  }, [active, onCommit]);
+
+  const overlay = box ? (
+    <div
+      className="pointer-events-none fixed z-[99991] border-2 border-dashed border-sky-400 bg-sky-400/10 ds-review-ui"
+      style={box}
+    />
+  ) : null;
+  return { overlay, dragging: !!box };
 }
 
 /**
@@ -63,9 +131,7 @@ function SelectionBox({ el, variant }) {
 export function useSelectionPicker({ active, multiSelect, onPick, onElementsChange }) {
   const [hoverEl, setHoverEl] = useState(null);
   const [selected, setSelected] = useState([]);
-  const marqueeRef = useRef(null);
-  const dragRef = useRef(null);
-  const didDragRef = useRef(false);
+  const justDraggedRef = useRef(false);
 
   const setSelection = useCallback(
     (els) => {
@@ -86,6 +152,20 @@ export function useSelectionPicker({ active, multiSelect, onPick, onElementsChan
     [onPick],
   );
 
+  const onMarqueeCommit = useCallback(
+    (hits) => {
+      justDraggedRef.current = true;
+      setSelection(hits);
+      if (multiSelect) onPick?.(hits, hits.map(describeElement));
+    },
+    [multiSelect, onPick, setSelection],
+  );
+
+  const { overlay: marqueeOverlay, dragging } = useMarquee({
+    active,
+    onCommit: onMarqueeCommit,
+  });
+
   useEffect(() => {
     if (!active) {
       setHoverEl(null);
@@ -94,7 +174,7 @@ export function useSelectionPicker({ active, multiSelect, onPick, onElementsChan
     }
 
     const onMove = (e) => {
-      if (dragRef.current) return;
+      if (dragging) return;
       const el = document.elementFromPoint(e.clientX, e.clientY);
       if (!el || !isReviewTarget(el) || el.closest('.ds-review-ui')) {
         setHoverEl(null);
@@ -103,62 +183,9 @@ export function useSelectionPicker({ active, multiSelect, onPick, onElementsChan
       setHoverEl(el);
     };
 
-    const onMouseDown = (e) => {
-      if (e.button !== 0 || e.target.closest('.ds-review-ui')) return;
-      if (!e.target.closest('.design-canvas, #root')) return;
-      const t = e.target;
-      if (isReviewTarget(t)) return;
-      dragRef.current = { x0: e.clientX, y0: e.clientY, x1: e.clientX, y1: e.clientY };
-      marqueeRef.current = document.createElement('div');
-      Object.assign(marqueeRef.current.style, {
-        position: 'fixed',
-        border: '2px dashed #4a9eff',
-        background: 'rgba(74, 158, 255, 0.08)',
-        pointerEvents: 'none',
-        zIndex: '99991',
-      });
-      document.body.appendChild(marqueeRef.current);
-    };
-
-    const onMouseMove = (e) => {
-      if (!dragRef.current || !marqueeRef.current) return;
-      dragRef.current.x1 = e.clientX;
-      dragRef.current.y1 = e.clientY;
-      const { x0, y0, x1, y1 } = dragRef.current;
-      const left = Math.min(x0, x1);
-      const top = Math.min(y0, y1);
-      marqueeRef.current.style.left = `${left}px`;
-      marqueeRef.current.style.top = `${top}px`;
-      marqueeRef.current.style.width = `${Math.abs(x1 - x0)}px`;
-      marqueeRef.current.style.height = `${Math.abs(y1 - y0)}px`;
-    };
-
-    const finishMarquee = () => {
-      if (!dragRef.current) return;
-      const { x0, y0, x1, y1 } = dragRef.current;
-      dragRef.current = null;
-      if (marqueeRef.current) {
-        marqueeRef.current.remove();
-        marqueeRef.current = null;
-      }
-      if (Math.abs(x1 - x0) < 6 && Math.abs(y1 - y0) < 6) return;
-      didDragRef.current = true;
-      const rect = {
-        left: Math.min(x0, x1),
-        top: Math.min(y0, y1),
-        right: Math.max(x0, x1),
-        bottom: Math.max(y0, y1),
-      };
-      const hits = collectTargetsInRect(rect);
-      if (hits.length) {
-        setSelection(hits);
-        if (multiSelect) onPick?.(hits, hits.map(describeElement));
-      }
-    };
-
     const onClick = (e) => {
-      if (didDragRef.current) {
-        didDragRef.current = false;
+      if (justDraggedRef.current) {
+        justDraggedRef.current = false;
         return;
       }
       if (e.target.closest('.ds-review-ui')) return;
@@ -169,8 +196,7 @@ export function useSelectionPicker({ active, multiSelect, onPick, onElementsChan
       ensureDsRef(el);
       if (multiSelect && e.shiftKey) {
         setSelected((prev) => {
-          const has = prev.includes(el);
-          const next = has ? prev.filter((x) => x !== el) : [...prev, el];
+          const next = prev.includes(el) ? prev.filter((x) => x !== el) : [...prev, el];
           onElementsChange?.(next);
           return next;
         });
@@ -181,29 +207,22 @@ export function useSelectionPicker({ active, multiSelect, onPick, onElementsChan
     };
 
     const onKey = (e) => {
-      if (!active || e.target.closest('input, textarea, select')) return;
+      if (!active || e.target.closest('input, textarea, select, [contenteditable]')) return;
       const current = selected[0] || hoverEl;
       if (!current) return;
       let next = null;
-      if (e.key === 'ArrowUp') {
-        next = getReviewParent(current);
-        e.preventDefault();
-      } else if (e.key === 'ArrowDown') {
-        next = getReviewChild(current);
-        e.preventDefault();
-      } else if (e.key === 'ArrowLeft') {
-        next = getReviewSibling(current, -1);
-        e.preventDefault();
-      } else if (e.key === 'ArrowRight') {
-        next = getReviewSibling(current, 1);
-        e.preventDefault();
-      } else if (e.key === 'Enter' && selected.length) {
+      if (e.key === 'ArrowUp') next = getReviewParent(current);
+      else if (e.key === 'ArrowDown') next = getReviewChild(current);
+      else if (e.key === 'ArrowLeft') next = getReviewSibling(current, -1);
+      else if (e.key === 'ArrowRight') next = getReviewSibling(current, 1);
+      else if (e.key === 'Enter' && selected.length) {
         e.preventDefault();
         if (multiSelect) onPick?.(selected, selected.map(describeElement));
         else pickPrimary(selected[0]);
         return;
       }
       if (next) {
+        e.preventDefault();
         setSelection([next]);
         setHoverEl(next);
         pickPrimary(next);
@@ -211,25 +230,17 @@ export function useSelectionPicker({ active, multiSelect, onPick, onElementsChan
     };
 
     document.addEventListener('mousemove', onMove, true);
-    document.addEventListener('mousedown', onMouseDown, true);
-    document.addEventListener('mousemove', onMouseMove, true);
-    document.addEventListener('mouseup', finishMarquee, true);
     document.addEventListener('click', onClick, true);
     document.addEventListener('keydown', onKey, true);
-    document.body.style.cursor = active ? 'crosshair' : '';
+    document.body.style.cursor = 'crosshair';
 
     return () => {
       document.removeEventListener('mousemove', onMove, true);
-      document.removeEventListener('mousedown', onMouseDown, true);
-      document.removeEventListener('mousemove', onMouseMove, true);
-      document.removeEventListener('mouseup', finishMarquee, true);
       document.removeEventListener('click', onClick, true);
       document.removeEventListener('keydown', onKey, true);
       document.body.style.cursor = '';
-      if (marqueeRef.current) marqueeRef.current.remove();
-      dragRef.current = null;
     };
-  }, [active, multiSelect, onPick, pickPrimary, setSelection, selected, hoverEl]);
+  }, [active, multiSelect, onPick, onElementsChange, pickPrimary, setSelection, selected, hoverEl, dragging]);
 
   const overlay = active ? (
     <>
@@ -237,6 +248,7 @@ export function useSelectionPicker({ active, multiSelect, onPick, onElementsChan
       {selected.map((el) => (
         <SelectionBox key={ensureDsRef(el)} el={el} variant="select" />
       ))}
+      {marqueeOverlay}
     </>
   ) : null;
 

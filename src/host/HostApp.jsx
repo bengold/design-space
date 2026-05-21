@@ -1,51 +1,20 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { MessageSquare, Pencil, Sliders } from 'lucide-react';
 import { filterOpenComments } from '../../lib/comment-utils.mjs';
 import { useDesignHostBridge } from './useDesignHostBridge.js';
 import QuestionsPanel from './QuestionsPanel.jsx';
 import ReviewSidebar from './ReviewSidebar.jsx';
-
-const shell = {
-  display: 'flex',
-  flexDirection: 'column',
-  height: '100vh',
-  background: '#29261b',
-  color: '#f6f4ef',
-  fontFamily: 'ui-sans-serif, system-ui, -apple-system, sans-serif',
-};
-
-const bar = {
-  display: 'flex',
-  alignItems: 'center',
-  gap: 12,
-  padding: '8px 14px',
-  borderBottom: '1px solid rgba(255,255,255,.08)',
-  flexShrink: 0,
-};
-
-const btn = (active) => ({
-  appearance: 'none',
-  border: '1px solid rgba(255,255,255,.14)',
-  background: active ? 'rgba(255,255,255,.14)' : 'rgba(255,255,255,.06)',
-  color: '#f6f4ef',
-  borderRadius: 8,
-  padding: '6px 12px',
-  font: 'inherit',
-  fontSize: 13,
-  fontWeight: 500,
-  cursor: 'pointer',
-});
-
-const select = {
-  appearance: 'none',
-  border: '1px solid rgba(255,255,255,.14)',
-  background: 'rgba(255,255,255,.06)',
-  color: '#f6f4ef',
-  borderRadius: 8,
-  padding: '6px 28px 6px 10px',
-  font: 'inherit',
-  fontSize: 13,
-  cursor: 'pointer',
-};
+import { Button } from '@/components/ui/button';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import { Badge } from '@/components/ui/badge';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { Separator } from '@/components/ui/separator';
 
 export default function HostApp() {
   const iframeRef = useRef(null);
@@ -59,6 +28,13 @@ export default function HostApp() {
       .then((d) => setActiveDesign(d?.name || ''))
       .catch(() => {});
   }, []);
+
+  // Comments mode and the Comments sidebar share one button — they open and
+  // close together. Editing & tweaks both close the sidebar implicitly because
+  // the bridge already deactivates commentMode when those modes engage.
+  useEffect(() => {
+    setSidebarOpen(bridge.commentMode);
+  }, [bridge.commentMode]);
 
   const { pollQuestions } = bridge;
   useEffect(() => {
@@ -78,132 +54,157 @@ export default function HostApp() {
     }
   }, [activeDesign]);
 
+  const openCount = filterOpenComments(bridge.comments).length;
+
   return (
-    <div style={shell}>
-      <header style={bar}>
-        <strong style={{ fontSize: 14, letterSpacing: -0.2 }}>Design Space</strong>
-        {activeDesign && (
-          <span style={{ opacity: 0.55, fontSize: 12 }}>designs/{activeDesign}</span>
-        )}
-        <div style={{ flex: 1 }} />
-        {bridge.canvasPresent && (
-          <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
-            <span style={{ opacity: 0.65 }}>Zoom</span>
-            <select
-              style={select}
-              value={bridge.zoomPresets.includes(bridge.zoom) ? bridge.zoom : ''}
-              onChange={(e) => {
-                const v = Number(e.target.value);
-                if (v) bridge.setFrameZoom(v);
-              }}
-            >
-              {!bridge.zoomPresets.includes(bridge.zoom) && (
-                <option value="">{bridge.zoomPercent}%</option>
-              )}
-              {bridge.zoomPresets.map((z) => (
-                <option key={z} value={z}>
-                  {Math.round(z * 100)}%
-                </option>
-              ))}
-            </select>
-          </label>
-        )}
-        {bridge.reviewReady && (
-          <>
-            <button
-              type="button"
-              style={btn(bridge.commentMode)}
-              onClick={bridge.toggleCommentMode}
-              title="Click elements in the preview to leave inline comments for agents"
-            >
-              Comment
-            </button>
-            <button
-              type="button"
-              style={btn(bridge.editMode)}
-              onClick={bridge.toggleEditMode}
-              title="Edit text and basic styles; saved to overrides.json"
-            >
-              Edit
-            </button>
-            <button
-              type="button"
-              style={btn(sidebarOpen)}
-              onClick={() => {
-                setSidebarOpen((o) => !o);
-                bridge.clearPendingEvents();
-              }}
-            >
-              Feedback
-              {filterOpenComments(bridge.comments).length
-                ? ` (${filterOpenComments(bridge.comments).length})`
-                : ''}
-              {bridge.pendingEvents > 0 ? ' •' : ''}
-            </button>
-          </>
-        )}
-        {bridge.questionsOpen && (
-          <span
-            style={{
-              fontSize: 11,
-              fontWeight: 600,
-              background: '#D97757',
-              color: '#fff',
-              padding: '2px 8px',
-              borderRadius: 999,
-            }}
-          >
-            Questions
-          </span>
-        )}
-        {bridge.tweaksAvailable && (
-          <button type="button" style={btn(bridge.tweaksOpen)} onClick={bridge.toggleTweaks}>
-            Tweaks
-          </button>
-        )}
-      </header>
-      <div style={{ display: 'flex', flex: 1, minHeight: 0 }}>
-        <iframe
-          ref={iframeRef}
-          title="Design preview"
-          src="/preview.html"
-          onLoad={bridge.onIframeLoad}
-          style={{
-            flex: 1,
-            width: '100%',
-            border: 0,
-            background: '#f0eee9',
-          }}
-        />
-        {sidebarOpen && (
-          <ReviewSidebar
-            designName={activeDesign}
-            comments={bridge.comments}
-            selectedCommentId={bridge.selectedCommentId}
-            onSelectComment={bridge.selectComment}
-            onCommentsChange={(next) => {
-              bridge.updateComments(next);
-              const win = iframeRef.current?.contentWindow;
-              if (win) {
-                win.postMessage(
-                  { type: '__comments_snapshot', comments: next, designName: activeDesign },
-                  '*',
-                );
-              }
-              if (!next.some((c) => c.id === bridge.selectedCommentId)) {
-                bridge.selectComment(null);
-              }
-            }}
-            onCopyExport={copyAgentContext}
-            onOpen={() => bridge.clearPendingEvents()}
+    <TooltipProvider delay={300}>
+      <div className="flex h-screen flex-col bg-background text-foreground font-sans">
+        <header className="flex flex-shrink-0 items-center gap-3 border-b border-border px-4 py-2">
+          <strong className="text-sm tracking-tight">Design Space</strong>
+          {activeDesign && (
+            <Badge variant="outline" className="font-mono text-[11px] tracking-tight">
+              designs/{activeDesign}
+            </Badge>
+          )}
+          <div className="flex-1" />
+
+          {bridge.canvasPresent && (
+            <div className="flex items-center gap-2 text-sm">
+              <span className="text-muted-foreground">Zoom</span>
+              <Select
+                value={
+                  bridge.zoomPresets.includes(bridge.zoom) ? String(bridge.zoom) : ''
+                }
+                onValueChange={(v) => {
+                  const n = Number(v);
+                  if (n) bridge.setFrameZoom(n);
+                }}
+              >
+                <SelectTrigger size="sm" className="min-w-[72px]">
+                  <SelectValue placeholder={`${bridge.zoomPercent}%`} />
+                </SelectTrigger>
+                <SelectContent>
+                  {bridge.zoomPresets.map((z) => (
+                    <SelectItem key={z} value={String(z)}>
+                      {Math.round(z * 100)}%
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+
+          {bridge.reviewReady && (
+            <>
+              <Separator orientation="vertical" className="!h-5" />
+              <Button
+                variant={bridge.commentMode ? 'secondary' : 'outline'}
+                size="sm"
+                aria-pressed={bridge.commentMode}
+                onClick={() => {
+                  bridge.toggleCommentMode();
+                  bridge.clearPendingEvents();
+                }}
+                title="Add inline comments by clicking elements in the preview; sidebar lists every comment"
+              >
+                <MessageSquare />
+                <span>Comments</span>
+                {openCount > 0 && (
+                  <Badge
+                    variant="secondary"
+                    className="ml-1 h-4 px-1.5 text-[10px] font-semibold"
+                  >
+                    {openCount}
+                  </Badge>
+                )}
+                {bridge.pendingEvents > 0 && (
+                  <span
+                    aria-label="Unread events"
+                    className="ml-0.5 size-1.5 rounded-full bg-primary"
+                  />
+                )}
+              </Button>
+              <Button
+                variant={bridge.editMode ? 'secondary' : 'outline'}
+                size="sm"
+                aria-pressed={bridge.editMode}
+                onClick={bridge.toggleEditMode}
+                title="Edit text and basic styles; saved to overrides.json"
+              >
+                <Pencil />
+                <span>Edit</span>
+              </Button>
+            </>
+          )}
+
+          {bridge.questionsOpen && (
+            <Badge className="bg-[#D97757] text-white hover:bg-[#D97757]/90">
+              Questions
+            </Badge>
+          )}
+
+          {bridge.tweaksAvailable && (
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Button
+                    variant={bridge.tweaksOpen ? 'secondary' : 'outline'}
+                    size="sm"
+                    onClick={bridge.toggleTweaks}
+                  >
+                    <Sliders />
+                    <span>Tweaks</span>
+                  </Button>
+                }
+              />
+              <TooltipContent>Open the tweaks panel for live design values</TooltipContent>
+            </Tooltip>
+          )}
+        </header>
+
+        <div className="flex min-h-0 flex-1">
+          <iframe
+            ref={iframeRef}
+            title="Design preview"
+            src="/preview.html"
+            onLoad={bridge.onIframeLoad}
+            className="w-full flex-1 border-0"
+            style={{ background: '#f0eee9' }}
           />
-        )}
+          {sidebarOpen && (
+            <ReviewSidebar
+              designName={activeDesign}
+              comments={bridge.comments}
+              selectedCommentId={bridge.selectedCommentId}
+              onSelectComment={bridge.selectComment}
+              onCommentsChange={(next) => {
+                bridge.updateComments(next);
+                const win = iframeRef.current?.contentWindow;
+                if (win) {
+                  win.postMessage(
+                    { type: '__comments_snapshot', comments: next, designName: activeDesign },
+                    '*',
+                  );
+                }
+                if (!next.some((c) => c.id === bridge.selectedCommentId)) {
+                  bridge.selectComment(null);
+                }
+              }}
+              onCopyExport={copyAgentContext}
+              onSendComment={bridge.requestSendComment}
+              onDeleteComment={bridge.requestDeleteComment}
+              onSendAllUnsent={bridge.requestSendAllUnsent}
+              onOpen={() => bridge.clearPendingEvents()}
+            />
+          )}
+        </div>
+
+        <QuestionsPanel
+          designName={activeDesign}
+          onAnswered={() => bridge.pollQuestions(activeDesign)}
+          onDismiss={() => bridge.pollQuestions(activeDesign)}
+        />
       </div>
-      <QuestionsPanel
-        designName={activeDesign}
-        onAnswered={() => bridge.pollQuestions(activeDesign)}
-        onDismiss={() => bridge.pollQuestions(activeDesign)}
-      />
-    </div>
+    </TooltipProvider>
   );
 }

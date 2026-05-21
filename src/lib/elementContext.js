@@ -1,14 +1,58 @@
 /** Build agent-readable element context from a DOM node (Claude Design–style). */
 
-let refCounter = 0;
-
+// Refs are STRUCTURAL — `<slotId>:<child-index-path>` — so they recompute to
+// the same value on reload, without persisting a session-only counter. The
+// `data-ds-anchor` JSX attribute is honored as a stable name when present
+// (preferred for refs that should survive structural edits to the design).
 export function ensureDsRef(el) {
   if (!el || el.nodeType !== 1) return null;
-  if (!el.dataset.dsRef) {
-    refCounter += 1;
-    el.dataset.dsRef = `ds-${refCounter}`;
+  if (el.dataset.dsRef) return el.dataset.dsRef;
+  const slot = el.closest('[data-dc-slot]');
+  if (!slot) return null;
+  const slotId = slot.dataset.dcSlot;
+  if (el === slot) {
+    el.dataset.dsRef = `${slotId}:root`;
+    return el.dataset.dsRef;
   }
-  return el.dataset.dsRef;
+  if (el.dataset.dsAnchor) {
+    const ref = `${slotId}:@${el.dataset.dsAnchor}`;
+    el.dataset.dsRef = ref;
+    return ref;
+  }
+  const path = [];
+  let node = el;
+  while (node && node !== slot) {
+    const parent = node.parentElement;
+    if (!parent) break;
+    const idx = Array.prototype.indexOf.call(parent.children, node);
+    path.unshift(idx);
+    node = parent;
+  }
+  const ref = `${slotId}:${path.join('.')}`;
+  el.dataset.dsRef = ref;
+  return ref;
+}
+
+/** Inverse of ensureDsRef — find the element a ref points at on a fresh page. */
+export function resolveDsRef(ref) {
+  if (!ref || typeof ref !== 'string') return null;
+  const [slotId, rest] = ref.split(':');
+  if (!slotId) return null;
+  const slot = document.querySelector(`[data-dc-slot="${CSS.escape(slotId)}"]`);
+  if (!slot) return null;
+  if (!rest || rest === 'root') return slot;
+  if (rest.startsWith('@')) {
+    const name = rest.slice(1);
+    return slot.querySelector(`[data-ds-anchor="${CSS.escape(name)}"]`);
+  }
+  const indices = rest.split('.').map((n) => Number(n));
+  let node = slot;
+  for (const idx of indices) {
+    if (!node?.children || !Number.isFinite(idx)) return null;
+    node = node.children[idx];
+    if (!node) return null;
+  }
+  return node;
 }
 
 function reactChain(el) {
@@ -90,7 +134,9 @@ export function formatMentionedElement(ctx, commentText) {
 export function isReviewTarget(el) {
   if (!el || el.nodeType !== 1) return false;
   if (el.closest('[data-noncommentable], .dc-header, .twk-panel, .ds-review-ui')) return false;
-  if (el.closest('.design-canvas') === null && !el.closest('#root')) return false;
+  // Only the actual mockup contents — the artboard slot and everything inside.
+  // Canvas chrome (toolbar, section headers, post-its, etc.) is not pickable.
+  if (!el.closest('[data-dc-slot]')) return false;
   return true;
 }
 

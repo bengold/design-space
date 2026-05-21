@@ -1,81 +1,22 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { buildAgentFeedbackMarkdown } from '../../lib/comment-utils.mjs';
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui/field';
+import { Button } from '@/components/ui/button';
+import { Textarea } from '@/components/ui/textarea';
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Slider } from '@/components/ui/slider';
+import { Spinner } from '@/components/ui/spinner';
+import { cn } from '@/lib/utils';
 
 const IDLE_MS = 5 * 60 * 1000;
-
-const theme = {
-  bg: '#faf9f5',
-  surface: '#ffffff',
-  text: '#1a1915',
-  textSecondary: '#4a4843',
-  textTertiary: '#6b6860',
-  border: 'rgba(0,0,0,.12)',
-  borderSubtle: 'rgba(0,0,0,.08)',
-  accent: '#D97757',
-};
-
-const shell = {
-  position: 'fixed',
-  inset: 0,
-  zIndex: 50,
-  display: 'flex',
-  flexDirection: 'column',
-  background: theme.bg,
-  fontFamily: "ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif",
-  color: theme.text,
-};
-
-const scroll = { flex: 1, overflowY: 'auto', padding: 32 };
-const inner = { maxWidth: 560, margin: '0 auto' };
-const titleStyle = {
-  fontFamily: "Georgia, 'Times New Roman', serif",
-  fontSize: 22,
-  fontWeight: 400,
-  margin: '0 0 24px',
-};
-const block = { marginBottom: 28 };
-const qTitle = { fontSize: 14, fontWeight: 600, marginBottom: 4 };
-const qSubtitle = { fontSize: 12, color: theme.textTertiary, marginBottom: 10 };
-const chipRow = { display: 'flex', flexWrap: 'wrap', gap: 8 };
-const footer = {
-  display: 'flex',
-  alignItems: 'center',
-  justifyContent: 'flex-end',
-  padding: '12px 16px',
-  borderTop: `1px solid ${theme.borderSubtle}`,
-  background: theme.surface,
-  gap: 12,
-};
-
-function chipStyle(active) {
-  return {
-    appearance: 'none',
-    borderRadius: 18,
-    padding: '6px 14px',
-    fontSize: 12,
-    fontWeight: 500,
-    border: `1px solid ${active ? theme.accent : theme.border}`,
-    background: active ? 'rgba(217,119,87,.12)' : theme.surface,
-    color: theme.text,
-    cursor: 'pointer',
-    maxWidth: '100%',
-    whiteSpace: 'normal',
-    overflowWrap: 'break-word',
-    textAlign: 'left',
-  };
-}
-
-const continueBtn = (disabled) => ({
-  appearance: 'none',
-  border: 0,
-  borderRadius: 8,
-  padding: '8px 16px',
-  fontSize: 13,
-  fontWeight: 600,
-  background: disabled ? 'rgba(0,0,0,.08)' : theme.accent,
-  color: disabled ? theme.textTertiary : '#fff',
-  cursor: disabled ? 'not-allowed' : 'pointer',
-});
 
 async function writeJson(path, data) {
   await fetch('/api/write', {
@@ -133,110 +74,153 @@ function isAllOfTheAbove(label) {
   return /^all of the above\b/i.test(label);
 }
 
+/**
+ * Renders text option questions using shadcn primitives.
+ *
+ * - `q.multi` false → RadioGroup (single string answer)
+ * - `q.multi` true  → list of Checkboxes (array answer)
+ *
+ * In both cases an "Other…" textarea allows entering a free-form option;
+ * its value is stored alongside the canonical options in `value`.
+ */
 function TextOptionsControl({ q, value, onChange }) {
-  const [other, setOther] = useState('');
-  const areaRef = useRef(null);
-  const measureRef = useRef(null);
   const selected = new Set(
-    Array.isArray(value) ? value.map(String) : value != null && value !== '' ? [String(value)] : [],
+    Array.isArray(value)
+      ? value.map(String)
+      : value != null && value !== ''
+        ? [String(value)]
+        : [],
   );
-
-  useLayoutEffect(() => {
-    const area = areaRef.current;
-    const measure = measureRef.current;
-    if (!area || !measure) return;
-    const wrap = measure.offsetWidth > 134;
-    area.style.flex = wrap ? '1 0 100%' : '';
-    area.style.height = 'auto';
-    if (wrap) {
-      const border = area.offsetHeight - area.clientHeight;
-      area.style.height = `${area.scrollHeight + border}px`;
+  const knownOptions = q.options ?? [];
+  // Discover any custom "other" value that isn't in the option list.
+  const initialOther = (() => {
+    if (Array.isArray(value)) {
+      const extra = value.find((v) => !knownOptions.includes(v));
+      return extra ?? '';
     }
-  }, [other]);
+    if (typeof value === 'string' && value && !knownOptions.includes(value)) {
+      return value;
+    }
+    return '';
+  })();
+  const [other, setOther] = useState(initialOther);
 
-  const toggle = (opt) => {
-    if (q.multi) {
-      const next = new Set(selected);
-      if (next.has(opt)) next.delete(opt);
-      else {
-        for (const o of q.options ?? []) {
-          if (isAllOfTheAbove(opt) !== isAllOfTheAbove(o)) next.delete(o);
-        }
-        next.add(opt);
-      }
-      onChange([...next]);
+  const toggleMulti = (opt, checked) => {
+    const next = new Set(selected);
+    if (!checked) {
+      next.delete(opt);
     } else {
-      onChange(opt);
+      for (const o of knownOptions) {
+        if (isAllOfTheAbove(opt) !== isAllOfTheAbove(o)) next.delete(o);
+      }
+      next.add(opt);
     }
+    onChange([...next]);
   };
 
-  const otherActive = !!other && selected.has(other);
+  if (q.multi) {
+    return (
+      <FieldGroup data-slot="checkbox-group" className="gap-2.5">
+        {knownOptions.map((opt) => {
+          const id = `${q.id}-${opt}`;
+          return (
+            <Field key={opt} orientation="horizontal">
+              <Checkbox
+                id={id}
+                checked={selected.has(opt)}
+                onCheckedChange={(checked) => toggleMulti(opt, !!checked)}
+              />
+              <FieldLabel htmlFor={id} className="font-normal">
+                {opt}
+              </FieldLabel>
+            </Field>
+          );
+        })}
+        <Field orientation="horizontal" className="items-start">
+          <Checkbox
+            id={`${q.id}-other`}
+            checked={!!other && selected.has(other)}
+            onCheckedChange={(checked) => {
+              const next = new Set(selected);
+              if (other) {
+                if (checked) next.add(other);
+                else next.delete(other);
+              }
+              onChange([...next]);
+            }}
+            disabled={!other}
+            className="mt-1.5"
+          />
+          <Textarea
+            placeholder="Other…"
+            value={other}
+            rows={1}
+            className="min-h-9 flex-1"
+            onChange={(e) => {
+              const T = e.target.value.replace(/\n/g, '');
+              const next = new Set(selected);
+              if (other && !knownOptions.includes(other)) next.delete(other);
+              if (T) next.add(T);
+              onChange([...next]);
+              setOther(T);
+            }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && !e.nativeEvent.isComposing) e.preventDefault();
+            }}
+          />
+        </Field>
+      </FieldGroup>
+    );
+  }
 
   return (
-    <div style={chipRow}>
-      {(q.options ?? []).map((opt) => (
-        <button
-          key={opt}
-          type="button"
-          style={chipStyle(selected.has(opt))}
-          onClick={() => toggle(opt)}
-        >
-          {opt}
-        </button>
-      ))}
-      <span
-        ref={measureRef}
-        aria-hidden
-        style={{
-          position: 'fixed',
-          top: -9999,
-          left: -9999,
-          visibility: 'hidden',
-          whiteSpace: 'pre',
-          fontSize: 12,
-          fontWeight: 500,
-        }}
+    <FieldGroup>
+      <RadioGroup
+        value={typeof value === 'string' ? value : ''}
+        onValueChange={(v) => onChange(v)}
+        className="gap-2.5"
       >
-        {other}
-      </span>
-      <textarea
-        ref={areaRef}
-        rows={1}
-        placeholder="Other…"
-        value={other}
-        style={{
-          padding: '8px 12px',
-          borderRadius: 18,
-          border: `1px solid ${otherActive ? theme.accent : theme.border}`,
-          background: otherActive ? 'rgba(217,119,87,.08)' : theme.surface,
-          fontFamily: 'inherit',
-          fontSize: 12,
-          fontWeight: 500,
-          width: 160,
-          resize: 'none',
-          overflow: 'hidden',
-          outline: 'none',
-        }}
-        onPointerDown={() => {
-          if (!q.multi && other) onChange(other);
-        }}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter' && !e.nativeEvent.isComposing) e.preventDefault();
-        }}
-        onChange={(e) => {
-          const T = e.target.value.replace(/\n/g, '');
-          if (q.multi) {
-            const next = new Set(selected);
-            if (other && !(q.options ?? []).includes(other)) next.delete(other);
-            if (T) next.add(T);
-            onChange([...next]);
-          } else if (T) {
-            onChange(T);
-          }
-          setOther(T);
-        }}
-      />
-    </div>
+        {knownOptions.map((opt) => {
+          const id = `${q.id}-${opt}`;
+          return (
+            <Field key={opt} orientation="horizontal">
+              <RadioGroupItem id={id} value={opt} />
+              <FieldLabel htmlFor={id} className="font-normal">
+                {opt}
+              </FieldLabel>
+            </Field>
+          );
+        })}
+      </RadioGroup>
+      <Field orientation="horizontal" className="items-start">
+        <RadioGroup
+          value={typeof value === 'string' && value === other && other ? other : ''}
+          onValueChange={() => other && onChange(other)}
+          className="contents"
+        >
+          <RadioGroupItem
+            id={`${q.id}-other`}
+            value={other || '__other__'}
+            disabled={!other}
+            className="mt-1.5"
+          />
+        </RadioGroup>
+        <Textarea
+          placeholder="Other…"
+          value={other}
+          rows={1}
+          className="min-h-9 flex-1"
+          onChange={(e) => {
+            const T = e.target.value.replace(/\n/g, '');
+            setOther(T);
+            if (T) onChange(T);
+          }}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && !e.nativeEvent.isComposing) e.preventDefault();
+          }}
+        />
+      </Field>
+    </FieldGroup>
   );
 }
 
@@ -259,25 +243,21 @@ function SvgOptionsControl({ q, value, onChange }) {
   };
 
   return (
-    <div style={chipRow}>
+    <div className="flex flex-wrap gap-2">
       {options.map(({ svg, index }) => (
         <button
           key={index}
           type="button"
-          style={{
-            ...chipStyle(selected.has(String(index))),
-            width: 96,
-            height: 72,
-            padding: 6,
-            overflow: 'hidden',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-          }}
           onClick={() => toggle(index)}
+          className={cn(
+            'flex h-[72px] w-24 items-center justify-center overflow-hidden rounded-md border p-1.5 transition-colors',
+            selected.has(String(index))
+              ? 'border-primary bg-primary/5'
+              : 'border-input bg-background hover:bg-muted',
+          )}
         >
           <span
-            style={{ maxWidth: '100%', maxHeight: '100%', display: 'flex' }}
+            className="flex max-h-full max-w-full"
             dangerouslySetInnerHTML={{ __html: svg }}
           />
         </button>
@@ -287,29 +267,23 @@ function SvgOptionsControl({ q, value, onChange }) {
 }
 
 function SliderControl({ q, value, onChange }) {
-  const num = typeof value === 'number' ? value : (q.default ?? q.min ?? 0);
+  const min = q.min ?? 0;
+  const max = q.max ?? 100;
+  const step = q.step ?? 1;
+  const num = typeof value === 'number' ? value : (q.default ?? min);
   return (
-    <div
-      style={{
-        display: 'flex',
-        alignItems: 'center',
-        gap: 12,
-        fontSize: 12,
-        color: theme.textSecondary,
-      }}
-    >
-      <span>{q.min ?? 0}</span>
-      <input
-        type="range"
-        min={q.min ?? 0}
-        max={q.max ?? 100}
-        step={q.step ?? 1}
-        value={num}
-        style={{ flex: 1, accentColor: theme.accent }}
-        onChange={(e) => onChange(Number(e.target.value))}
+    <div className="flex items-center gap-3 text-xs text-muted-foreground">
+      <span>{min}</span>
+      <Slider
+        min={min}
+        max={max}
+        step={step}
+        value={[num]}
+        onValueChange={(vals) => onChange(Number(vals[0]))}
+        className="flex-1"
       />
-      <span>{q.max ?? 100}</span>
-      <strong style={{ minWidth: 40, textAlign: 'right', color: theme.text }}>{num}</strong>
+      <span>{max}</span>
+      <strong className="min-w-10 text-right text-foreground">{num}</strong>
     </div>
   );
 }
@@ -329,43 +303,32 @@ function FileControl({ q, value, onChange, designName }) {
   };
   return (
     <label
-      style={{
-        display: 'block',
-        padding: 20,
-        border: `2px dashed ${value ? theme.accent : theme.border}`,
-        borderRadius: 8,
-        background: theme.surface,
-        textAlign: 'center',
-        fontSize: 12,
-        color: theme.textSecondary,
-        cursor: 'pointer',
-      }}
+      className={cn(
+        'block cursor-pointer rounded-lg border-2 border-dashed bg-background p-5 text-center text-xs text-muted-foreground transition-colors',
+        value ? 'border-primary text-foreground' : 'border-border hover:border-foreground/30',
+      )}
     >
-      <input type="file" accept={q.accept} onChange={onFile} style={{ display: 'none' }} />
-      {busy ? 'Uploading…' : value ? `✓ ${value}` : 'Click to upload a file'}
+      <input type="file" accept={q.accept} onChange={onFile} className="hidden" />
+      {busy ? (
+        <span className="inline-flex items-center gap-2">
+          <Spinner /> Uploading…
+        </span>
+      ) : value ? (
+        `✓ ${value}`
+      ) : (
+        'Click to upload a file'
+      )}
     </label>
   );
 }
 
-function FreeformControl({ q, value, onChange }) {
+function FreeformControl({ value, onChange }) {
   return (
-    <textarea
+    <Textarea
       value={typeof value === 'string' ? value : ''}
       onChange={(e) => onChange(e.target.value)}
       placeholder="Your answer…"
-      style={{
-        width: '100%',
-        boxSizing: 'border-box',
-        minHeight: 80,
-        padding: 10,
-        border: `1px solid ${theme.border}`,
-        borderRadius: 8,
-        background: theme.surface,
-        fontSize: 13,
-        fontFamily: 'inherit',
-        resize: 'vertical',
-        outline: 'none',
-      }}
+      rows={4}
     />
   );
 }
@@ -381,7 +344,7 @@ function QuestionField({ q, value, onChange, designName }) {
     case 'file':
       return <FileControl q={q} value={value} onChange={onChange} designName={designName} />;
     case 'freeform':
-      return <FreeformControl q={q} value={value} onChange={onChange} />;
+      return <FreeformControl value={value} onChange={onChange} />;
     default:
       return null;
   }
@@ -492,34 +455,46 @@ export default function QuestionsPanel({ designName, onAnswered, onDismiss }) {
   const spec = normalizeSpec(data);
 
   return (
-    <div style={shell} className="ds-review-ui" role="dialog" aria-modal="true">
-      <div style={scroll}>
-        <div style={inner}>
-          <h1 style={titleStyle}>{spec.title || 'Quick questions'}</h1>
-          {spec.questions.map((q) => (
-            <div key={q.id} style={block}>
-              <div style={qTitle}>{q.title}</div>
-              {q.subtitle && <div style={qSubtitle}>{q.subtitle}</div>}
-              <QuestionField
-                q={q}
-                value={answers[q.id]}
-                onChange={(v) => setAnswer(q.id, v)}
-                designName={designName}
-              />
-            </div>
-          ))}
+    <Dialog open={shouldShow} onOpenChange={(open) => !open && dismiss()}>
+      <DialogContent
+        className="ds-review-ui flex max-h-[90vh] w-full max-w-2xl flex-col overflow-hidden gap-0 p-0 sm:max-w-2xl"
+        showCloseButton={false}
+      >
+        <DialogHeader className="px-6 pt-6 pb-4">
+          <DialogTitle className="font-heading text-xl font-normal">
+            {spec.title || 'Quick questions'}
+          </DialogTitle>
+        </DialogHeader>
+
+        <div className="flex-1 overflow-y-auto px-6 pb-6">
+          <FieldGroup className="gap-7">
+            {spec.questions.map((q) => (
+              <Field key={q.id}>
+                <FieldLabel className="text-sm font-semibold">{q.title}</FieldLabel>
+                {q.subtitle && (
+                  <FieldDescription className="!mt-0 -mb-1">{q.subtitle}</FieldDescription>
+                )}
+                <QuestionField
+                  q={q}
+                  value={answers[q.id]}
+                  onChange={(v) => setAnswer(q.id, v)}
+                  designName={designName}
+                />
+              </Field>
+            ))}
+          </FieldGroup>
         </div>
-      </div>
-      <div style={footer}>
-        <button
-          type="button"
-          style={continueBtn(submitting)}
-          disabled={submitting}
-          onClick={submit}
-        >
-          {submitting ? 'Continuing…' : 'Continue'}
-        </button>
-      </div>
-    </div>
+
+        <DialogFooter className="mx-0 mb-0 rounded-b-xl border-t bg-muted/50 px-4 py-3 sm:justify-end">
+          <Button variant="ghost" onClick={dismiss} disabled={submitting}>
+            Cancel
+          </Button>
+          <Button onClick={submit} disabled={submitting}>
+            {submitting && <Spinner />}
+            {submitting ? 'Continuing…' : 'Continue'}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

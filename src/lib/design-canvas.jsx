@@ -1,5 +1,21 @@
 import React from 'react';
 import ReactDOM from 'react-dom';
+import { ChevronDown, ChevronLeft, ChevronRight, Expand, MoreHorizontal, X } from 'lucide-react';
+
+import { Button } from '@/components/ui/button';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
 
 // DesignCanvas.jsx — Figma-ish design canvas wrapper
 // Warm gray grid bg + Sections + Artboards + PostIt notes.
@@ -68,24 +84,12 @@ if (typeof document !== 'undefined' && !document.getElementById('dc-styles')) {
     '.dc-labeltext .dc-editable{overflow:hidden;text-overflow:ellipsis;max-width:100%}',
     '.dc-labeltext .dc-editable:focus{overflow:visible;text-overflow:clip}',
     '.dc-btns{flex:0 0 auto;margin-left:auto;display:flex;gap:2px;opacity:0;transition:opacity .12s}',
-    '[data-dc-slot]:hover .dc-btns,.dc-btns:has(.dc-menu){opacity:1}',
-    '.dc-expand,.dc-kebab{width:22px;height:22px;border-radius:5px;border:none;cursor:pointer;padding:0;',
-    '  background:transparent;color:rgba(60,50,40,.7);display:flex;align-items:center;justify-content:center;',
-    '  font:inherit;transition:background .12s,color .12s}',
-    '.dc-expand:hover,.dc-kebab:hover{background:rgba(0,0,0,.06);color:#2a251f}',
-    // Slot hosting an open menu floats above later siblings (which otherwise
-    // paint on top — same z-index:auto, later DOM order) so the popup isn't
-    // clipped by the next card.
-    '[data-dc-slot]:has(.dc-menu){z-index:10}',
-    '.dc-menu{position:absolute;top:100%;right:0;margin-top:4px;background:#fff;border-radius:8px;',
-    '  box-shadow:0 8px 28px rgba(0,0,0,.18),0 0 0 1px rgba(0,0,0,.05);padding:4px;min-width:160px;z-index:10}',
-    '.dc-menu button{display:block;width:100%;padding:7px 10px;border:0;background:transparent;',
-    '  border-radius:5px;font-family:inherit;font-size:13px;font-weight:500;line-height:1.2;',
-    '  color:#29261b;cursor:pointer;text-align:left;transition:background .12s;white-space:nowrap}',
-    '.dc-menu button:hover{background:rgba(0,0,0,.05)}',
-    '.dc-menu hr{border:0;border-top:1px solid rgba(0,0,0,.08);margin:4px 2px}',
-    '.dc-menu .dc-danger{color:#c96442}',
-    '.dc-menu .dc-danger:hover{background:rgba(201,100,66,.1)}',
+    '[data-dc-slot]:hover .dc-btns,.dc-btns[data-menu-open="true"]{opacity:1}',
+    // Header icon buttons get a transparent ghost look matching the warm-gray
+    // chrome palette; the shadcn Button base supplies focus rings + sizing.
+    '.dc-header [data-slot="button"]{color:rgba(60,50,40,.7);background:transparent;border:none}',
+    '.dc-header [data-slot="button"]:hover{background:rgba(0,0,0,.06);color:#2a251f}',
+    '.dc-header [data-slot="button"][aria-expanded="true"]{background:rgba(0,0,0,.08);color:#2a251f}',
     // Chrome (titles / labels / buttons) counter-scales against the viewport
     // zoom so it stays a constant on-screen size. --dc-inv-zoom is set by
     // DCViewport on every transform update and inherits to all descendants —
@@ -863,22 +867,13 @@ function DCArtboardFrame({
   const id = rawId ?? rawLabel;
   const ref = React.useRef(null);
   const cardRef = React.useRef(null);
-  const menuRef = React.useRef(null);
   const [menuOpen, setMenuOpen] = React.useState(false);
   const [confirming, setConfirming] = React.useState(false);
 
-  // ⋯ menu: close on any outside pointerdown. Two-click delete lives inside
-  // the menu — first click arms the row, second commits; closing disarms.
+  // Two-click delete: first click arms, second commits. Resetting on close
+  // means reopening the menu starts disarmed.
   React.useEffect(() => {
-    if (!menuOpen) {
-      setConfirming(false);
-      return;
-    }
-    const off = (e) => {
-      if (!menuRef.current || !menuRef.current.contains(e.target)) setMenuOpen(false);
-    };
-    document.addEventListener('pointerdown', off, true);
-    return () => document.removeEventListener('pointerdown', off, true);
+    if (!menuOpen) setConfirming(false);
   }, [menuOpen]);
 
   const doExport = (kind) => {
@@ -996,48 +991,59 @@ function DCArtboardFrame({
             />
           </div>
         </div>
-        <div className="dc-btns">
-          <div ref={menuRef} style={{ position: 'relative' }}>
-            <button className="dc-kebab" title="More" onClick={() => setMenuOpen((o) => !o)}>
-              <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor">
-                <circle cx="2.5" cy="6" r="1.1" />
-                <circle cx="6" cy="6" r="1.1" />
-                <circle cx="9.5" cy="6" r="1.1" />
-              </svg>
-            </button>
-            {menuOpen && (
-              <div className="dc-menu" onPointerDown={(e) => e.stopPropagation()}>
-                <button onClick={() => doExport('png')}>Download PNG</button>
-                <button onClick={() => doExport('html')}>Download HTML</button>
-                <hr />
-                <button
-                  className="dc-danger"
+        <TooltipProvider delay={300}>
+          <div className="dc-btns" data-menu-open={menuOpen || undefined}>
+            <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
+              <Tooltip>
+                <TooltipTrigger
+                  render={
+                    <DropdownMenuTrigger
+                      render={
+                        <Button variant="ghost" size="icon-xs" aria-label="More">
+                          <MoreHorizontal />
+                        </Button>
+                      }
+                    />
+                  }
+                />
+                <TooltipContent>More</TooltipContent>
+              </Tooltip>
+              <DropdownMenuContent
+                align="end"
+                sideOffset={4}
+                onPointerDown={(e) => e.stopPropagation()}
+              >
+                <DropdownMenuItem onClick={() => doExport('png')}>Download PNG</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => doExport('html')}>Download HTML</DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  variant="destructive"
+                  closeOnClick={false}
                   onClick={() => {
                     if (confirming) {
                       setMenuOpen(false);
                       onDelete();
-                    } else setConfirming(true);
+                    } else {
+                      setConfirming(true);
+                    }
                   }}
                 >
                   {confirming ? 'Click again to delete' : 'Delete'}
-                </button>
-              </div>
-            )}
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Button variant="ghost" size="icon-xs" aria-label="Focus" onClick={onFocus}>
+                    <Expand />
+                  </Button>
+                }
+              />
+              <TooltipContent>Focus</TooltipContent>
+            </Tooltip>
           </div>
-          <button className="dc-expand" onClick={onFocus} title="Focus">
-            <svg
-              width="12"
-              height="12"
-              viewBox="0 0 12 12"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.6"
-              strokeLinecap="round"
-            >
-              <path d="M7 1h4v4M5 11H1V7M11 1L7.5 4.5M1 11l3.5-3.5" />
-            </svg>
-          </button>
-        </div>
+        </TooltipProvider>
       </div>
       <div
         ref={cardRef}
@@ -1161,50 +1167,33 @@ function DCFocusOverlay({ entry, sectionMeta, sectionOrder }) {
   const scale = Math.max(0.1, Math.min((vp.w - 200) / width, (vp.h - 260) / height, 2));
 
   const [ddOpen, setDd] = React.useState(false);
-  const Arrow = ({ dir, onClick }) => (
-    <button
-      onClick={(e) => {
-        e.stopPropagation();
-        onClick();
-      }}
-      style={{
-        position: 'absolute',
-        top: '50%',
-        [dir]: 28,
-        transform: 'translateY(-50%)',
-        border: 'none',
-        background: 'rgba(255,255,255,.08)',
-        color: 'rgba(255,255,255,.9)',
-        width: 44,
-        height: 44,
-        borderRadius: 22,
-        fontSize: 18,
-        cursor: 'pointer',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        transition: 'background .15s',
-      }}
-      onMouseEnter={(e) => (e.currentTarget.style.background = 'rgba(255,255,255,.18)')}
-      onMouseLeave={(e) => (e.currentTarget.style.background = 'rgba(255,255,255,.08)')}
-    >
-      <svg
-        width="18"
-        height="18"
-        viewBox="0 0 18 18"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="2"
-        strokeLinecap="round"
-      >
-        <path d={dir === 'left' ? 'M11 3L5 9l6 6' : 'M7 3l6 6-6 6'} />
-      </svg>
-    </button>
+  const Arrow = ({ dir, label, onClick }) => (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label={label}
+            onClick={(e) => {
+              e.stopPropagation();
+              onClick();
+            }}
+            className="absolute top-1/2 size-11 -translate-y-1/2 rounded-full border-none bg-white/10 text-white/90 hover:bg-white/20 hover:text-white"
+            style={{ [dir]: 28 }}
+          >
+            {dir === 'left' ? <ChevronLeft className="size-[18px]" /> : <ChevronRight className="size-[18px]" />}
+          </Button>
+        }
+      />
+      <TooltipContent>{label}</TooltipContent>
+    </Tooltip>
   );
 
   // Portal to body so position:fixed is the real viewport regardless of any
   // transform on DesignCanvas's ancestors (including the canvas zoom itself).
   return ReactDOM.createPortal(
+    <TooltipProvider delay={300}>
     <div
       onClick={() => ctx.setFocus(null)}
       onWheel={(e) => e.preventDefault()}
@@ -1219,132 +1208,84 @@ function DCFocusOverlay({ entry, sectionMeta, sectionOrder }) {
       }}
     >
       {/* top bar: section dropdown (left) · close (right) */}
-      <div
-        onClick={(e) => e.stopPropagation()}
-        style={{
-          position: 'absolute',
-          top: 0,
-          left: 0,
-          right: 0,
-          height: 72,
-          display: 'flex',
-          alignItems: 'flex-start',
-          padding: '16px 20px 0',
-          gap: 16,
-        }}
-      >
-        <div style={{ position: 'relative' }}>
-          <button
-            onClick={() => setDd((o) => !o)}
-            style={{
-              border: 'none',
-              background: 'transparent',
-              color: '#fff',
-              cursor: 'pointer',
-              padding: '6px 8px',
-              borderRadius: 6,
-              textAlign: 'left',
-              fontFamily: 'inherit',
-            }}
-          >
-            <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <span style={{ fontSize: 18, fontWeight: 600, letterSpacing: -0.3 }}>
-                {meta.title}
-              </span>
-              <svg
-                width="11"
-                height="11"
-                viewBox="0 0 11 11"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.8"
-                strokeLinecap="round"
-                style={{ opacity: 0.7 }}
-              >
-                <path d="M2 4l3.5 3.5L9 4" />
-              </svg>
-            </span>
-            {meta.subtitle && (
-              <span
-                style={{
-                  display: 'block',
-                  fontSize: 13,
-                  opacity: 0.6,
-                  fontWeight: 400,
-                  marginTop: 2,
-                }}
-              >
-                {meta.subtitle}
-              </span>
-            )}
-          </button>
-          {ddOpen && (
-            <div
-              style={{
-                position: 'absolute',
-                top: '100%',
-                left: 0,
-                marginTop: 4,
-                background: '#2a251f',
-                borderRadius: 8,
-                boxShadow: '0 8px 32px rgba(0,0,0,.4)',
-                padding: 4,
-                minWidth: 200,
-                zIndex: 10,
-              }}
-            >
+        <div
+          onClick={(e) => e.stopPropagation()}
+          style={{
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            right: 0,
+            height: 72,
+            display: 'flex',
+            alignItems: 'flex-start',
+            padding: '16px 20px 0',
+            gap: 16,
+          }}
+        >
+          <DropdownMenu open={ddOpen} onOpenChange={setDd}>
+            <DropdownMenuTrigger
+              render={
+                <button
+                  type="button"
+                  className="cursor-pointer rounded-md border-none bg-transparent px-2 py-1.5 text-left font-[inherit] text-white outline-none hover:bg-white/10 focus-visible:bg-white/10 aria-expanded:bg-white/10"
+                >
+                  <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span style={{ fontSize: 18, fontWeight: 600, letterSpacing: -0.3 }}>
+                      {meta.title}
+                    </span>
+                    <ChevronDown className="size-[11px] opacity-70" strokeWidth={1.8} />
+                  </span>
+                  {meta.subtitle && (
+                    <span
+                      style={{
+                        display: 'block',
+                        fontSize: 13,
+                        opacity: 0.6,
+                        fontWeight: 400,
+                        marginTop: 2,
+                      }}
+                    >
+                      {meta.subtitle}
+                    </span>
+                  )}
+                </button>
+              }
+            />
+            <DropdownMenuContent align="start" sideOffset={4} className="min-w-[200px]">
               {sectionOrder
                 .filter((sid) => sectionMeta[sid].slotIds.length)
                 .map((sid) => (
-                  <button
+                  <DropdownMenuItem
                     key={sid}
                     onClick={() => {
-                      setDd(false);
                       const f = sectionMeta[sid].slotIds[0];
                       if (f) ctx.setFocus(`${sid}/${f}`);
                     }}
-                    style={{
-                      display: 'block',
-                      width: '100%',
-                      textAlign: 'left',
-                      border: 'none',
-                      cursor: 'pointer',
-                      background: sid === sectionId ? 'rgba(255,255,255,.1)' : 'transparent',
-                      color: '#fff',
-                      padding: '8px 12px',
-                      borderRadius: 5,
-                      fontSize: 14,
-                      fontWeight: sid === sectionId ? 600 : 400,
-                      fontFamily: 'inherit',
-                    }}
+                    className={sid === sectionId ? 'font-semibold' : undefined}
                   >
                     {sectionMeta[sid].title}
-                  </button>
+                  </DropdownMenuItem>
                 ))}
-            </div>
-          )}
+            </DropdownMenuContent>
+          </DropdownMenu>
+          <div style={{ flex: 1 }} />
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  aria-label="Close focus mode"
+                  onClick={() => ctx.setFocus(null)}
+                  className="size-8 rounded-full border-none bg-transparent text-white/70 hover:bg-white/10 hover:text-white"
+                >
+                  <X />
+                </Button>
+              }
+            />
+            <TooltipContent>Close (Esc)</TooltipContent>
+          </Tooltip>
         </div>
-        <div style={{ flex: 1 }} />
-        <button
-          onClick={() => ctx.setFocus(null)}
-          onMouseEnter={(e) => (e.currentTarget.style.background = 'rgba(255,255,255,.12)')}
-          onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
-          style={{
-            border: 'none',
-            background: 'transparent',
-            color: 'rgba(255,255,255,.7)',
-            width: 32,
-            height: 32,
-            borderRadius: 16,
-            fontSize: 20,
-            cursor: 'pointer',
-            lineHeight: 1,
-            transition: 'background .12s',
-          }}
-        >
-          ×
-        </button>
-      </div>
 
       {/* card centered, label + index below — only the card itself stops
           propagation so any backdrop click (including the margins around
@@ -1405,8 +1346,8 @@ function DCFocusOverlay({ entry, sectionMeta, sectionOrder }) {
         </div>
       </div>
 
-      <Arrow dir="left" onClick={() => go(-1)} />
-      <Arrow dir="right" onClick={() => go(1)} />
+      <Arrow dir="left" label="Previous artboard" onClick={() => go(-1)} />
+      <Arrow dir="right" label="Next artboard" onClick={() => go(1)} />
 
       {/* dots */}
       <div
@@ -1436,7 +1377,8 @@ function DCFocusOverlay({ entry, sectionMeta, sectionOrder }) {
           />
         ))}
       </div>
-    </div>,
+    </div>
+    </TooltipProvider>,
     document.body,
   );
 }

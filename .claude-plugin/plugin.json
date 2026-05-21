@@ -8,7 +8,7 @@
   "mcpServers": {
     "design-space": {
       "command": "node",
-      "args": ["${CLAUDE_PLUGIN_ROOT}/mcp-server/index.mjs"],
+      "args": ["${CLAUDE_PLUGIN_ROOT}/mcp-server/dist/index.mjs"],
       "env": {
         "DESIGN_SPACE_ROOT": "${CLAUDE_PROJECT_DIR}"
       }

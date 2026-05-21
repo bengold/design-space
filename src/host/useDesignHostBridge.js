@@ -167,6 +167,28 @@ export function useDesignHostBridge(iframeRef) {
     setComments(Array.isArray(next) ? next : []);
   }, []);
 
+  // Per-row actions from the Comments sidebar route through the preview iframe
+  // (where the comment-actions module lives + writes to disk + appends events).
+  const requestDeleteComment = useCallback(
+    (id) => {
+      if (!id) return;
+      postToFrame({ type: '__delete_comment_request', id });
+    },
+    [postToFrame],
+  );
+
+  const requestSendComment = useCallback(
+    (id) => {
+      if (!id) return;
+      postToFrame({ type: '__send_comment_request', id });
+    },
+    [postToFrame],
+  );
+
+  const requestSendAllUnsent = useCallback(() => {
+    postToFrame({ type: '__send_all_unsent_comments' });
+  }, [postToFrame]);
+
   const onIframeLoad = useCallback(() => {
     setCanvasPresent(false);
     setTweaksAvailable(false);
@@ -200,6 +222,9 @@ export function useDesignHostBridge(iframeRef) {
     pendingEvents,
     clearPendingEvents: () => setPendingEvents(0),
     highlightComment,
+    requestDeleteComment,
+    requestSendComment,
+    requestSendAllUnsent,
     questionsOpen,
     pollQuestions,
     onIframeLoad,

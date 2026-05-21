@@ -1,4 +1,13 @@
-import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import { autoUpdate } from '@floating-ui/dom';
+import { useFloating, offset as offsetMiddleware, flip, shift } from '@floating-ui/react';
+import { Send, Trash2, X } from 'lucide-react';
+
+import { Button } from '@/components/ui/button';
+import { Field, FieldGroup, FieldLabel } from '@/components/ui/field';
+import { Textarea } from '@/components/ui/textarea';
+import { cn } from '@/lib/utils';
+
 import { filterOpenComments } from '../../lib/comment-utils.mjs';
 import {
   deleteComment,
@@ -6,112 +15,26 @@ import {
   sendCommentToAgent,
   updateCommentText,
 } from './comment-actions.js';
-import { describeElement } from './elementContext.js';
 import { stylesToCssRule } from './css-property-schema.js';
 import { EditPanel } from './edit-panel.jsx';
-import { useSelectionPicker } from './selection-picker.jsx';
+import { resolveDsRef } from './elementContext.js';
 import { appendReviewEvent } from './review-events.js';
+import { useSelectionPicker } from './selection-picker.jsx';
 import { fetchDesignJson, writeDesignFile } from '../preview/persistDesignFile.js';
 
 const ReviewCtx = createContext(null);
-
 export function useDesignReview() {
   return useContext(ReviewCtx);
 }
 
-const ui = {
-  panel: {
-    position: 'fixed',
-    right: 16,
-    top: 72,
-    width: 300,
-    background: '#29261b',
-    color: '#f6f4ef',
-    border: '1px solid rgba(255,255,255,.12)',
-    borderRadius: 12,
-    padding: 14,
-    fontFamily: 'ui-sans-serif, system-ui, sans-serif',
-    fontSize: 13,
-    boxShadow: '0 12px 40px rgba(0,0,0,.35)',
-    zIndex: 100000,
-  },
-  textarea: {
-    width: '100%',
-    boxSizing: 'border-box',
-    border: '1px solid rgba(255,255,255,.14)',
-    background: 'rgba(255,255,255,.06)',
-    color: '#f6f4ef',
-    borderRadius: 8,
-    padding: '8px 10px',
-    font: 'inherit',
-    minHeight: 72,
-    resize: 'vertical',
-    marginBottom: 10,
-  },
-  btn: {
-    appearance: 'none',
-    border: '1px solid rgba(255,255,255,.14)',
-    background: 'rgba(255,255,255,.1)',
-    color: '#f6f4ef',
-    borderRadius: 8,
-    padding: '8px 12px',
-    font: 'inherit',
-    fontWeight: 600,
-    cursor: 'pointer',
-    width: '100%',
-  },
-  btnDanger: {
-    appearance: 'none',
-    border: '1px solid rgba(220,80,60,.45)',
-    background: 'rgba(180,50,40,.3)',
-    color: '#f6f4ef',
-    borderRadius: 8,
-    padding: '8px 12px',
-    font: 'inherit',
-    fontWeight: 600,
-    cursor: 'pointer',
-    width: '100%',
-  },
-  pin: {
-    position: 'fixed',
-    width: 22,
-    height: 22,
-    borderRadius: '50%',
-    background: '#D97757',
-    border: '2px solid #fff',
-    boxShadow: '0 2px 8px rgba(0,0,0,.25)',
-    transform: 'translate(-50%, -50%)',
-    cursor: 'pointer',
-    zIndex: 99998,
-    fontSize: 11,
-    fontWeight: 700,
-    color: '#fff',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    pointerEvents: 'auto',
-  },
-  hint: {
-    position: 'fixed',
-    left: '50%',
-    bottom: 20,
-    transform: 'translateX(-50%)',
-    background: 'rgba(41,38,27,.92)',
-    color: '#f6f4ef',
-    padding: '10px 16px',
-    borderRadius: 999,
-    fontSize: 12,
-    zIndex: 99999,
-    pointerEvents: 'none',
-    border: '1px solid rgba(255,255,255,.12)',
-    maxWidth: 'min(520px, 92vw)',
-    textAlign: 'center',
-    lineHeight: 1.45,
-  },
-};
-
 async function persistOverrides(designName, byRef) {
   await writeDesignFile(`designs/${designName}/overrides.json`, { byRef });
+}
+
+function commentContexts(comment) {
+  if (comment.contexts?.length) return comment.contexts;
+  if (comment.context) return [comment.context];
+  return [];
 }
 
 function OverridesInjector({ byRef }) {
@@ -124,16 +47,23 @@ function OverridesInjector({ byRef }) {
     [byRef],
   );
 
+  // Resolve each saved ref to its element via the structural path and stamp the
+  // data-ds-ref attribute back on so the CSS rule matches on a fresh page load.
+  // Then imperatively apply any saved textContent (guarded against destroying
+  // child structure).
   useEffect(() => {
     for (const [ref, o] of Object.entries(byRef || {})) {
+      let el = document.querySelector(`[data-ds-ref="${CSS.escape(ref)}"]`);
+      if (!el) {
+        el = resolveDsRef(ref);
+        if (el) el.dataset.dsRef = ref;
+      }
+      if (!el) continue;
       if (o.textContent == null) continue;
-      const el = document.querySelector(`[data-ds-ref="${ref}"]`);
-      if (el && o.textContent !== undefined) {
-        if (el.childNodes.length === 1 && el.firstChild?.nodeType === 3) {
-          el.firstChild.textContent = o.textContent;
-        } else if (!el.querySelector('[data-ds-ref]')) {
-          el.textContent = o.textContent;
-        }
+      if (el.childNodes.length === 1 && el.firstChild?.nodeType === 3) {
+        el.firstChild.textContent = o.textContent;
+      } else if (!el.querySelector('[data-ds-ref]') && el.children.length === 0) {
+        el.textContent = o.textContent;
       }
     }
   }, [byRef]);
@@ -142,18 +72,12 @@ function OverridesInjector({ byRef }) {
   return <style data-ds-overrides>{css}</style>;
 }
 
-function commentContexts(comment) {
-  if (comment.contexts?.length) return comment.contexts;
-  if (comment.context) return [comment.context];
-  return [];
-}
-
-function CommentContextList({ contexts }) {
+function ContextList({ contexts }) {
   if (!contexts.length) return null;
   return (
-    <ul style={{ margin: '0 0 10px', paddingLeft: 16, fontSize: 11, opacity: 0.55 }}>
+    <ul className="m-0 list-disc pl-4 text-[11px] text-muted-foreground">
       {contexts.slice(0, 5).map((ctx) => (
-        <li key={ctx.ref} style={{ fontFamily: 'ui-monospace, monospace' }}>
+        <li key={ctx.ref} className="font-mono">
           {ctx.dom}
         </li>
       ))}
@@ -162,155 +86,290 @@ function CommentContextList({ contexts }) {
   );
 }
 
-function CommentComposer({ contexts, onSave, onSaveAndSend, onCancel }) {
-  const [text, setText] = useState('');
-  return (
-    <div className="ds-review-ui" style={ui.panel}>
-      <div style={{ fontWeight: 600, marginBottom: 8 }}>
-        Comment{contexts.length > 1 ? ` (${contexts.length} elements)` : ''}
-      </div>
-      <CommentContextList contexts={contexts} />
-      <textarea
-        style={ui.textarea}
-        placeholder="What should change?"
-        value={text}
-        autoFocus
-        onChange={(e) => setText(e.target.value)}
-      />
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-        <button
-          type="button"
-          style={{ ...ui.btn, background: '#D97757', border: 'none' }}
-          onClick={() => text.trim() && onSaveAndSend(text.trim())}
-        >
-          Send to agent
-        </button>
-        <div style={{ display: 'flex', gap: 8 }}>
-          <button
-            type="button"
-            style={{ ...ui.btn, flex: 1 }}
-            onClick={() => text.trim() && onSave(text.trim())}
-          >
-            Save only
-          </button>
-          <button type="button" style={{ ...ui.btn, flex: 1, opacity: 0.8 }} onClick={onCancel}>
-            Cancel
-          </button>
-        </div>
-      </div>
-    </div>
-  );
+// Resolve the first DOM element associated with a list of context entries.
+// Prefers a live data-ds-ref lookup, then resolveDsRef (structural path).
+function resolveContextElement(contexts) {
+  if (!contexts || !contexts.length) return null;
+  for (const ctx of contexts) {
+    const ref = ctx?.ref || ctx?.anchor;
+    if (!ref) continue;
+    const live = document.querySelector(`[data-ds-ref="${CSS.escape(ref)}"]`);
+    if (live) return live;
+    const resolved = resolveDsRef(ref);
+    if (resolved) return resolved;
+  }
+  return null;
 }
 
-function CommentDetailPanel({ comment, busy, onSave, onSend, onDelete, onClose }) {
-  const [text, setText] = useState(comment.text);
-  const contexts = commentContexts(comment);
-  const trimmed = text.trim();
-  const dirty = trimmed !== comment.text;
-  const isResolved = comment.status === 'resolved';
+// Track an element so its bounding rect can be re-read on layout changes.
+// Returns a virtual reference object compatible with @floating-ui/react.
+function useVirtualAnchor(el) {
+  const [, force] = useState(0);
+  // Bump on layout changes (scroll/resize/transform) so floating-ui repositions.
+  useEffect(() => {
+    if (!el) return undefined;
+    const tick = () => force((n) => (n + 1) & 0xffff);
+    // autoUpdate watches scroll ancestors + resize of the reference.
+    // The dummy 2nd arg is required by the dom API; we drive force-updates
+    // through floating-ui's own autoUpdate via `whileElementsMounted` below,
+    // so just listen to scroll/resize globally as a belt + suspenders.
+    window.addEventListener('scroll', tick, true);
+    window.addEventListener('resize', tick, true);
+    return () => {
+      window.removeEventListener('scroll', tick, true);
+      window.removeEventListener('resize', tick, true);
+    };
+  }, [el]);
+
+  return useMemo(() => {
+    if (!el) return null;
+    return {
+      getBoundingClientRect: () => el.getBoundingClientRect(),
+      contextElement: el,
+    };
+  }, [el]);
+}
+
+function CommentPopover({
+  open,
+  mode, // 'compose' | 'detail'
+  contexts,
+  comment,
+  busy,
+  anchorEl,
+  onOpenChange,
+  onSubmit, // (text, { sendToAgent })
+  onDelete,
+}) {
+  const initialText = mode === 'detail' ? comment?.text || '' : '';
+  const [text, setText] = useState(initialText);
+  const popupRef = useRef(null);
 
   useEffect(() => {
-    setText(comment.text);
-  }, [comment.id, comment.text]);
+    setText(initialText);
+  }, [initialText, comment?.id]);
+
+  const list = mode === 'detail' ? commentContexts(comment || {}) : contexts || [];
+  const trimmed = text.trim();
+  const isResolved = comment?.status === 'resolved';
+  const isSent = comment?.sentToAgent;
+  const dirty = mode === 'detail' ? trimmed !== comment?.text : trimmed.length > 0;
+
+  const reference = useVirtualAnchor(anchorEl);
+  const { refs, floatingStyles } = useFloating({
+    open,
+    placement: 'right-start',
+    middleware: [offsetMiddleware(12), flip(), shift({ padding: 16 })],
+    whileElementsMounted: autoUpdate,
+  });
+
+  useEffect(() => {
+    refs.setReference(reference);
+  }, [reference, refs]);
+
+  // Dismiss on outside click + Escape.
+  useEffect(() => {
+    if (!open) return undefined;
+    const onDown = (e) => {
+      const el = popupRef.current;
+      if (!el) return;
+      if (el.contains(e.target)) return;
+      // Don't close when clicking another canvas element while in compose mode;
+      // composer is bound to its picked context until explicitly canceled.
+      if (e.target.closest('.ds-review-ui')) return;
+      onOpenChange?.(false);
+    };
+    const onKey = (e) => {
+      if (e.key === 'Escape') {
+        e.stopPropagation();
+        onOpenChange?.(false);
+      }
+    };
+    document.addEventListener('mousedown', onDown, true);
+    document.addEventListener('keydown', onKey, true);
+    return () => {
+      document.removeEventListener('mousedown', onDown, true);
+      document.removeEventListener('keydown', onKey, true);
+    };
+  }, [open, onOpenChange]);
+
+  if (!open || !anchorEl) return null;
+
+  const title =
+    mode === 'compose'
+      ? `Comment${list.length > 1 ? ` · ${list.length} elements` : ''}`
+      : `Comment${list.length > 1 ? ` · ${list.length} elements` : ''}`;
+  const subtitle = isSent ? 'Sent to agent' : isResolved ? 'Resolved' : 'Open';
 
   return (
-    <div className="ds-review-ui" style={ui.panel}>
-      <div style={{ fontWeight: 600, marginBottom: 4 }}>
-        Comment{contexts.length > 1 ? ` (${contexts.length} elements)` : ''}
-      </div>
-      <div style={{ fontSize: 11, opacity: 0.55, marginBottom: 8 }}>
-        {comment.sentToAgent ? 'Sent to agent' : isResolved ? 'Resolved' : 'Open'}
-      </div>
-      <CommentContextList contexts={contexts} />
-      <textarea
-        style={ui.textarea}
-        placeholder="What should change?"
-        value={text}
-        autoFocus
-        readOnly={isResolved}
-        onChange={(e) => setText(e.target.value)}
-      />
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-        {!isResolved && !comment.sentToAgent && (
-          <button
-            type="button"
-            disabled={busy || !trimmed}
-            style={{ ...ui.btn, background: '#D97757', border: 'none', opacity: busy ? 0.6 : 1 }}
-            onClick={() => trimmed && onSend(trimmed)}
-          >
-            Send to agent
-          </button>
-        )}
-        {!isResolved && (
-          <div style={{ display: 'flex', gap: 8 }}>
-            <button
-              type="button"
-              disabled={busy || !trimmed || !dirty}
-              style={{ ...ui.btn, flex: 1, opacity: dirty ? 1 : 0.5 }}
-              onClick={() => trimmed && dirty && onSave(trimmed)}
-            >
-              Save changes
-            </button>
-            <button
-              type="button"
-              style={{ ...ui.btn, flex: 1, opacity: 0.8 }}
-              disabled={busy}
-              onClick={onClose}
-            >
-              Close
-            </button>
-          </div>
-        )}
-        {isResolved && (
-          <button
-            type="button"
-            style={{ ...ui.btn, opacity: 0.8 }}
-            disabled={busy}
-            onClick={onClose}
-          >
-            Close
-          </button>
-        )}
+    <div
+      ref={(node) => {
+        popupRef.current = node;
+        refs.setFloating(node);
+      }}
+      role="dialog"
+      className="ds-review-ui z-[100000] flex w-[320px] flex-col gap-0 rounded-lg border border-border bg-popover text-popover-foreground shadow-lg ring-1 ring-foreground/10 outline-hidden"
+      style={floatingStyles}
+    >
+      <div className="flex items-start justify-between gap-2 border-b border-border px-3 py-2">
+        <div className="flex flex-col gap-0.5">
+          <div className="text-sm font-medium leading-tight">{title}</div>
+          {mode === 'detail' && (
+            <p className="text-[11px] text-muted-foreground">{subtitle}</p>
+          )}
+        </div>
         <button
           type="button"
-          disabled={busy}
-          style={{ ...ui.btnDanger, opacity: busy ? 0.6 : 1 }}
-          onClick={onDelete}
+          aria-label="Close"
+          className="-mr-1 -mt-0.5 inline-flex size-6 items-center justify-center rounded-sm text-muted-foreground hover:bg-muted hover:text-foreground"
+          onClick={() => onOpenChange?.(false)}
         >
-          Delete comment
+          <X className="size-3.5" />
         </button>
+      </div>
+
+      <div className="flex flex-col gap-3 px-3 py-3">
+        <FieldGroup>
+          {list.length > 0 && (
+            <Field>
+              <FieldLabel>Targets</FieldLabel>
+              <ContextList contexts={list} />
+            </Field>
+          )}
+          <Field>
+            <FieldLabel htmlFor="comment-body">What should change?</FieldLabel>
+            <Textarea
+              id="comment-body"
+              value={text}
+              autoFocus
+              readOnly={isResolved}
+              rows={4}
+              onChange={(e) => setText(e.target.value)}
+              placeholder="Describe the change you want…"
+            />
+          </Field>
+        </FieldGroup>
+      </div>
+
+      <div className="flex flex-col gap-2 border-t border-border px-3 py-2">
+        {!isResolved && (mode === 'compose' || !isSent) && (
+          <Button
+            size="sm"
+            disabled={busy || !trimmed}
+            onClick={() => onSubmit(trimmed, { sendToAgent: true })}
+            className="w-full"
+          >
+            <Send data-icon="inline-start" />
+            Send to agent
+          </Button>
+        )}
+        {!isResolved && mode === 'detail' && dirty && (
+          <Button
+            size="sm"
+            variant="secondary"
+            disabled={busy || !trimmed}
+            onClick={() => onSubmit(trimmed, { sendToAgent: false })}
+            className="w-full"
+          >
+            Save changes
+          </Button>
+        )}
+        {!isResolved && mode === 'compose' && (
+          <Button
+            size="sm"
+            variant="secondary"
+            disabled={busy || !trimmed}
+            onClick={() => onSubmit(trimmed, { sendToAgent: false })}
+            className="w-full"
+          >
+            Save only
+          </Button>
+        )}
+        {mode === 'compose' && (
+          <button
+            type="button"
+            className="self-center text-xs text-muted-foreground underline-offset-2 hover:underline disabled:opacity-50"
+            disabled={busy}
+            onClick={() => onOpenChange?.(false)}
+          >
+            Cancel
+          </button>
+        )}
+        {mode === 'detail' && (
+          <Button
+            size="sm"
+            variant="destructive"
+            disabled={busy}
+            onClick={onDelete}
+            className="w-full"
+          >
+            <Trash2 data-icon="inline-start" />
+            Delete comment
+          </Button>
+        )}
       </div>
     </div>
   );
 }
 
-function CommentPins({ comments, highlighted, onSelect }) {
+function CommentPin({ refId, index, selected, onSelect }) {
+  const [pos, setPos] = useState(null);
+  useEffect(() => {
+    const el = document.querySelector(`[data-ds-ref="${refId}"]`);
+    if (!el) {
+      setPos(null);
+      return undefined;
+    }
+    const update = () => {
+      const r = el.getBoundingClientRect();
+      setPos({ left: r.left + r.width / 2, top: r.top });
+    };
+    update();
+    return autoUpdate(el, document.body, update);
+  }, [refId]);
+
+  if (!pos) return null;
+  return (
+    <button
+      type="button"
+      className={cn(
+        'ds-review-ui fixed z-[99998] flex size-6 -translate-x-1/2 -translate-y-1/2 cursor-pointer items-center justify-center rounded-full border-2 border-background bg-primary text-[11px] font-bold text-primary-foreground shadow-md transition-transform',
+        selected && 'ring-2 ring-primary ring-offset-2 ring-offset-background scale-110',
+      )}
+      style={{ left: pos.left, top: pos.top }}
+      onClick={onSelect}
+    >
+      {index + 1}
+    </button>
+  );
+}
+
+function CommentPinLayer({ comments, highlighted, onSelect }) {
   return filterOpenComments(comments).map((c, i) => {
     const ctx = c.contexts?.[0] || c.context;
-    const el = document.querySelector(`[data-ds-ref="${ctx?.ref || c.anchor}"]`);
-    if (!el) return null;
-    const r = el.getBoundingClientRect();
-    const selected = highlighted === c.id;
+    const refId = ctx?.ref || c.anchor;
+    if (!refId) return null;
     return (
-      <button
+      <CommentPin
         key={c.id}
-        type="button"
-        className="ds-review-ui"
-        title={c.text}
-        style={{
-          ...ui.pin,
-          left: r.left + r.width / 2,
-          top: r.top,
-          outline: selected ? '2px solid #D97757' : undefined,
-          outlineOffset: 2,
-          transform: selected ? 'scale(1.15)' : undefined,
-        }}
-        onClick={() => onSelect(c)}
-      >
-        {i + 1}
-      </button>
+        refId={refId}
+        index={i}
+        selected={highlighted === c.id}
+        onSelect={() => onSelect(c)}
+      />
     );
   });
+}
+
+function ModeHint({ commentMode }) {
+  const text = commentMode
+    ? '↑ parent · ↓ child · ←→ siblings · Shift+click multi · drag box · Enter to comment'
+    : 'Click element to inspect · ↑↓←→ navigate · live preview · Apply to save';
+  return (
+    <div className="ds-review-ui fixed bottom-5 left-1/2 z-[99999] -translate-x-1/2 rounded-full border border-border bg-background/95 px-4 py-2 text-xs text-foreground shadow-md pointer-events-none">
+      {text}
+    </div>
+  );
 }
 
 export function DesignReviewShell({ designName, children }) {
@@ -329,6 +388,19 @@ export function DesignReviewShell({ designName, children }) {
     () => (activeCommentId ? comments.find((c) => c.id === activeCommentId) : null),
     [comments, activeCommentId],
   );
+
+  // Resolve a DOM anchor for the floating popovers. Recomputed whenever the
+  // backing contexts/comments change so we always point at a live element.
+  const [composeAnchorEl, setComposeAnchorEl] = useState(null);
+  const [detailAnchorEl, setDetailAnchorEl] = useState(null);
+
+  useEffect(() => {
+    setComposeAnchorEl(resolveContextElement(pendingContexts));
+  }, [pendingContexts]);
+
+  useEffect(() => {
+    setDetailAnchorEl(activeComment ? resolveContextElement(commentContexts(activeComment)) : null);
+  }, [activeComment]);
 
   const closeCommentPanel = useCallback(() => {
     setActiveCommentId(null);
@@ -388,9 +460,7 @@ export function DesignReviewShell({ designName, children }) {
           break;
         case '__highlight_comment':
           setHighlighted(d.id || null);
-          if (d.id) {
-            setActiveCommentId(d.id);
-          }
+          if (d.id) setActiveCommentId(d.id);
           break;
         case '__open_comment':
           if (d.id) {
@@ -412,6 +482,15 @@ export function DesignReviewShell({ designName, children }) {
           break;
         case '__comments_snapshot':
           if (Array.isArray(d.comments)) setComments(d.comments);
+          break;
+        case '__delete_comment_request':
+          if (d.id) removeCommentRef.current?.(d.id);
+          break;
+        case '__send_comment_request':
+          if (d.id) sendOneRef.current?.(d.id);
+          break;
+        case '__send_all_unsent_comments':
+          sendAllUnsentRef.current?.();
           break;
         default:
           break;
@@ -492,29 +571,48 @@ export function DesignReviewShell({ designName, children }) {
     [comments, designName, questions, syncComments, closeCommentPanel],
   );
 
-  const saveCommentEdits = useCallback(
-    async (commentId, text) => {
+  const submitDetail = useCallback(
+    async (text, { sendToAgent }) => {
+      if (!activeCommentId) return;
       setCommentBusy(true);
       try {
-        const next = await updateCommentText(designName, comments, questions, commentId, text);
+        let next = comments;
+        const current = comments.find((c) => c.id === activeCommentId);
+        if (text && current && text !== current.text) {
+          next = await updateCommentText(designName, comments, questions, activeCommentId, text);
+        }
+        if (sendToAgent) {
+          next = await sendCommentToAgent(designName, next, questions, activeCommentId);
+          window.parent.postMessage(
+            { type: '__review_event', designName, eventType: 'comment.sent', commentId: activeCommentId },
+            '*',
+          );
+        }
         syncComments(next);
       } finally {
         setCommentBusy(false);
       }
     },
-    [comments, designName, questions, syncComments],
+    [activeCommentId, comments, designName, questions, syncComments],
   );
 
-  const sendExistingComment = useCallback(
-    async (commentId, text) => {
+  const submitCompose = useCallback(
+    (text, { sendToAgent }) => addComment(pendingContexts, text, sendToAgent),
+    [addComment, pendingContexts],
+  );
+
+  // Refs let the postMessage handler call the latest version of each action
+  // without re-binding the message listener every time `comments` changes.
+  const removeCommentRef = useRef(null);
+  const sendOneRef = useRef(null);
+  const sendAllUnsentRef = useRef(null);
+
+  const sendOne = useCallback(
+    async (commentId) => {
+      if (!commentId) return;
       setCommentBusy(true);
       try {
-        let next = comments;
-        const current = comments.find((x) => x.id === commentId);
-        if (text && current && text !== current.text) {
-          next = await updateCommentText(designName, comments, questions, commentId, text);
-        }
-        next = await sendCommentToAgent(designName, next, questions, commentId);
+        const next = await sendCommentToAgent(designName, comments, questions, commentId);
         syncComments(next);
         window.parent.postMessage(
           { type: '__review_event', designName, eventType: 'comment.sent', commentId },
@@ -526,6 +624,34 @@ export function DesignReviewShell({ designName, children }) {
     },
     [comments, designName, questions, syncComments],
   );
+
+  // Keep refs current so the global message handler always invokes the
+  // latest closure (otherwise stale `comments` would slip through).
+  removeCommentRef.current = removeComment;
+  sendOneRef.current = sendOne;
+
+  const sendAllUnsent = useCallback(async () => {
+    const ids = comments
+      .filter((c) => c.status !== 'resolved' && !c.sentToAgent)
+      .map((c) => c.id);
+    if (ids.length === 0) return;
+    setCommentBusy(true);
+    try {
+      let next = comments;
+      for (const id of ids) {
+        next = await sendCommentToAgent(designName, next, questions, id);
+        window.parent.postMessage(
+          { type: '__review_event', designName, eventType: 'comment.sent', commentId: id },
+          '*',
+        );
+      }
+      syncComments(next);
+    } finally {
+      setCommentBusy(false);
+    }
+  }, [comments, designName, questions, syncComments]);
+
+  sendAllUnsentRef.current = sendAllUnsent;
 
   const applyOverride = useCallback(
     async (ref, patch) => {
@@ -584,54 +710,55 @@ export function DesignReviewShell({ designName, children }) {
     [designName, comments, overrides, commentMode, editMode],
   );
 
-  const hint = commentMode
-    ? '↑ parent · ↓ child · ←→ siblings · Shift+click multi · drag box · Enter to comment'
-    : 'Click element to inspect · ↑↓←→ navigate · edit all CSS in panel';
+  const showHint = pickMode && !pendingContexts && !editTarget && !activeComment;
 
   return (
     <ReviewCtx.Provider value={ctxValue}>
       <OverridesInjector byRef={overrides} />
       {children}
       {selectionOverlay}
-      <CommentPins
+      <CommentPinLayer
         comments={comments}
         highlighted={highlighted}
-        onSelect={(c) => openCommentPanel(c)}
+        onSelect={openCommentPanel}
       />
-      {activeComment && (
-        <CommentDetailPanel
-          comment={activeComment}
-          busy={commentBusy}
-          onSave={(text) => saveCommentEdits(activeComment.id, text)}
-          onSend={(text) => sendExistingComment(activeComment.id, text)}
-          onDelete={() => removeComment(activeComment.id)}
-          onClose={closeCommentPanel}
-        />
-      )}
-      {pickMode && !pendingContexts && !editTarget && !activeComment && (
-        <div className="ds-review-ui" style={ui.hint}>
-          {hint}
-        </div>
-      )}
-      {pendingContexts && !activeComment && (
-        <CommentComposer
-          contexts={pendingContexts}
-          onSave={(text) => addComment(pendingContexts, text, false)}
-          onSaveAndSend={(text) => addComment(pendingContexts, text, true)}
-          onCancel={() => {
+
+      <CommentPopover
+        open={!!pendingContexts}
+        mode="compose"
+        contexts={pendingContexts || []}
+        anchorEl={composeAnchorEl}
+        busy={commentBusy}
+        onOpenChange={(o) => {
+          if (!o) {
             setPendingContexts(null);
             clearSelection();
-          }}
-        />
-      )}
-      {editTarget && (
-        <EditPanel
-          el={editTarget}
-          overrides={overrides}
-          onApply={applyOverride}
-          onClose={() => setEditTarget(null)}
-        />
-      )}
+          }
+        }}
+        onSubmit={submitCompose}
+      />
+
+      <CommentPopover
+        open={!!activeComment}
+        mode="detail"
+        comment={activeComment}
+        anchorEl={detailAnchorEl}
+        busy={commentBusy}
+        onOpenChange={(o) => {
+          if (!o) closeCommentPanel();
+        }}
+        onSubmit={submitDetail}
+        onDelete={() => activeComment && removeComment(activeComment.id)}
+      />
+
+      <EditPanel
+        el={editTarget}
+        overrides={overrides}
+        onApply={applyOverride}
+        onClose={() => setEditTarget(null)}
+      />
+
+      {showHint && <ModeHint commentMode={commentMode} />}
     </ReviewCtx.Provider>
   );
 }

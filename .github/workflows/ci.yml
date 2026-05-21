@@ -43,5 +43,15 @@ jobs:
       - name: Test
         run: npm test
 
-      - name: Build
+      - name: Build host
         run: npm run build
+
+      - name: Build MCP server bundle and verify it's committed
+        run: |
+          npm run build:mcp
+          status="$(git status --porcelain mcp-server/dist)"
+          if [ -n "$status" ]; then
+            echo "::error::mcp-server/dist is out of date or untracked — run 'npm run build:mcp' and commit"
+            echo "$status"
+            exit 1
+          fi

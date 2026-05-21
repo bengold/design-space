@@ -1,0 +1,19 @@
+{
+  "name": "design-space",
+  "owner": {
+    "name": "Ben Gold"
+  },
+  "description": "Design Space — local Claude Design host (canvas, tweaks, comments, refinement Q&A) for coding agents.",
+  "plugins": [
+    {
+      "name": "design-space",
+      "source": "./",
+      "description": "Edit designs/<name>/Design.jsx, read human comments/overrides, ask refinement questions, poll review events. Ships the design-space skill and a self-contained stdio MCP server.",
+      "homepage": "https://github.com/bengold/design-space",
+      "repository": "https://github.com/bengold/design-space",
+      "license": "MIT",
+      "category": "design",
+      "tags": ["design", "ui", "canvas", "claude-design", "prototyping", "mcp"]
+    }
+  ]
+}

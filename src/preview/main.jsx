@@ -1,6 +1,8 @@
 import React, { StrictMode, useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
+import '../index.css';
 import { DesignReviewShell } from '../lib/design-review.jsx';
+import { DesignTweaksRoot } from './DesignTweaksRoot.jsx';
 import { installOmeletteBridge } from './omelette.js';
 import { loadActiveDesign } from './designLoader.js';
 
@@ -61,6 +63,10 @@ function PreviewRoot() {
   return (
     <DesignReviewShell designName={name}>
       <Component key={name} designName={name} />
+      {/* DialKit-backed tweaks panel. Mounted once at preview root so all
+          designs share one shell; individual designs declare their controls
+          via useDesignTweaksDialKit, which registers them with DialStore. */}
+      <DesignTweaksRoot position="bottom-right" />
     </DesignReviewShell>
   );
 }

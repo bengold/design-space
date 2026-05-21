@@ -2,7 +2,4 @@
 
 Open items only. Resolved comments are omitted. Poll inbox for urgent sends.
 
-## Refinement answers
-
-- **What should we optimize for?** Onboarding
-- **Notes for the agent** Make the CTA more prominent
+_No open feedback._
