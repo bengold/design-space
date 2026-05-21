@@ -74,7 +74,7 @@ export default function HostApp() {
                 variant="outline"
                 size="sm"
                 onClick={bridge.fitToScreen}
-                title="Fit all artboards to screen (1)"
+                title="Fit all artboards to screen (⌘1)"
               >
                 <Maximize2 />
                 <span>Fit</span>

@@ -499,11 +499,14 @@ function DCViewport({ children, minScale = 0.1, maxScale = 8, style = {} }) {
       apply();
     };
 
-    // Press `1` to fit, `0` to reset to 100% — only when focus isn't inside an
-    // editable control, so it doesn't hijack typing in tweaks/edit fields.
+    // Cmd+1 / Ctrl+1 → fit to screen; Cmd+0 / Ctrl+0 → 100%. Matches Figma's
+    // convention. Modifier required so plain `1`/`0` typing inside artboard
+    // content isn't hijacked.
     const onKey = (e) => {
       const target = e.target;
       if (target?.closest?.('input, textarea, select, [contenteditable="true"]')) return;
+      const meta = e.metaKey || e.ctrlKey;
+      if (!meta || e.shiftKey || e.altKey) return;
       if (e.key === '1') {
         e.preventDefault();
         fitToScreen();
