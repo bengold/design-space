@@ -194,6 +194,10 @@ export function useDesignHostBridge(iframeRef) {
     postToFrame({ type: '__send_all_unsent_comments' });
   }, [postToFrame]);
 
+  const fitToScreen = useCallback(() => {
+    postToFrame({ type: '__dc_fit_to_screen' });
+  }, [postToFrame]);
+
   const onIframeLoad = useCallback(() => {
     setCanvasPresent(false);
     setTweaksAvailable(false);
@@ -230,6 +234,7 @@ export function useDesignHostBridge(iframeRef) {
     requestDeleteComment,
     requestSendComment,
     requestSendAllUnsent,
+    fitToScreen,
     questionsOpen,
     pollQuestions,
     onIframeLoad,

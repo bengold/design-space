@@ -449,6 +449,72 @@ function DCViewport({ children, minScale = 0.1, maxScale = 8, style = {} }) {
       vp.style.cursor = '';
     };
 
+    // "Fit to screen" — finds the bounding box of every artboard and re-frames
+    // the viewport so all of them are visible with a small screen-space margin.
+    // Used by the host toolbar's recenter button and the `1` keyboard shortcut.
+    const fitToScreen = () => {
+      const world = worldRef.current;
+      if (!world) return;
+      const slots = world.querySelectorAll('[data-dc-slot]');
+      const t = tf.current;
+      const vpRect = vp.getBoundingClientRect();
+      if (!slots.length) {
+        tf.current = { x: 0, y: 0, scale: 1 };
+        apply();
+        return;
+      }
+      let minX = Infinity,
+        minY = Infinity,
+        maxX = -Infinity,
+        maxY = -Infinity;
+      for (const slot of slots) {
+        const r = slot.getBoundingClientRect();
+        // Map screen → world (undo the current transform).
+        const wx0 = (r.left - vpRect.left - t.x) / t.scale;
+        const wy0 = (r.top - vpRect.top - t.y) / t.scale;
+        const wx1 = (r.right - vpRect.left - t.x) / t.scale;
+        const wy1 = (r.bottom - vpRect.top - t.y) / t.scale;
+        if (wx0 < minX) minX = wx0;
+        if (wy0 < minY) minY = wy0;
+        if (wx1 > maxX) maxX = wx1;
+        if (wy1 > maxY) maxY = wy1;
+      }
+      const pad = 60; // px in screen space
+      const worldW = Math.max(1, maxX - minX);
+      const worldH = Math.max(1, maxY - minY);
+      const scale = Math.min(
+        maxScale,
+        Math.max(
+          minScale,
+          Math.min((vpRect.width - pad * 2) / worldW, (vpRect.height - pad * 2) / worldH),
+        ),
+      );
+      const cx = (minX + maxX) / 2;
+      const cy = (minY + maxY) / 2;
+      tf.current = {
+        x: vpRect.width / 2 - cx * scale,
+        y: vpRect.height / 2 - cy * scale,
+        scale,
+      };
+      apply();
+    };
+
+    // Press `1` to fit, `0` to reset to 100% — only when focus isn't inside an
+    // editable control, so it doesn't hijack typing in tweaks/edit fields.
+    const onKey = (e) => {
+      const target = e.target;
+      if (target?.closest?.('input, textarea, select, [contenteditable="true"]')) return;
+      if (e.key === '1') {
+        e.preventDefault();
+        fitToScreen();
+      } else if (e.key === '0') {
+        e.preventDefault();
+        const r = vp.getBoundingClientRect();
+        zoomAt(r.left + r.width / 2, r.top + r.height / 2, 1 / tf.current.scale);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+
     // Host-driven zoom (toolbar % menu). Zooms around viewport centre so the
     // visible midpoint stays fixed — matching the host's iframe-zoom feel.
     const onHostMsg = (e) => {
@@ -456,6 +522,8 @@ function DCViewport({ children, minScale = 0.1, maxScale = 8, style = {} }) {
       if (d && d.type === '__dc_set_zoom' && typeof d.scale === 'number') {
         const r = vp.getBoundingClientRect();
         zoomAt(r.left + r.width / 2, r.top + r.height / 2, d.scale / tf.current.scale);
+      } else if (d && d.type === '__dc_fit_to_screen') {
+        fitToScreen();
       } else if (d && d.type === '__dc_probe') {
         // Host's [readyGen] reset asks whether a canvas is present; it
         // fires on the iframe's native 'load', which for canvases with
@@ -489,6 +557,7 @@ function DCViewport({ children, minScale = 0.1, maxScale = 8, style = {} }) {
     vp.addEventListener('pointercancel', onPointerUp);
     return () => {
       window.removeEventListener('message', onHostMsg);
+      window.removeEventListener('keydown', onKey);
       vp.removeEventListener('wheel', onWheel);
       vp.removeEventListener('gesturestart', onGestureStart);
       vp.removeEventListener('gesturechange', onGestureChange);

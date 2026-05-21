@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { MessageSquare, Pencil, Sliders } from 'lucide-react';
+import { Maximize2, MessageSquare, Pencil, Sliders } from 'lucide-react';
 import { filterOpenComments } from '../../lib/comment-utils.mjs';
 import { useDesignHostBridge } from './useDesignHostBridge.js';
 import QuestionsPanel from './QuestionsPanel.jsx';
@@ -70,6 +70,15 @@ export default function HostApp() {
 
           {bridge.canvasPresent && (
             <div className="flex items-center gap-2 text-sm">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={bridge.fitToScreen}
+                title="Fit all artboards to screen (1)"
+              >
+                <Maximize2 />
+                <span>Fit</span>
+              </Button>
               <span className="text-muted-foreground">Zoom</span>
               <Select
                 value={bridge.zoomPresets.includes(bridge.zoom) ? String(bridge.zoom) : ''}
