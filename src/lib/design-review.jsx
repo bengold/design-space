@@ -361,7 +361,7 @@ function CommentPin({ refId, index, selected, onSelect }) {
     <button
       type="button"
       className={cn(
-        'ds-review-ui fixed z-[99998] flex size-6 -translate-x-1/2 -translate-y-1/2 cursor-pointer items-center justify-center rounded-full border-2 border-background bg-primary text-[11px] font-bold text-primary-foreground shadow-md transition-transform',
+        'ds-review-ui fixed z-40 flex size-6 -translate-x-1/2 -translate-y-1/2 cursor-pointer items-center justify-center rounded-full border-2 border-background bg-primary text-[11px] font-bold text-primary-foreground shadow-md transition-transform',
         selected && 'ring-2 ring-primary ring-offset-2 ring-offset-background scale-110',
       )}
       style={{ left: pos.left, top: pos.top }}
@@ -394,7 +394,7 @@ function ModeHint({ commentMode }) {
     ? '↑ parent · ↓ child · ←→ siblings · Shift+click multi · drag box · Enter to comment'
     : 'Click element to inspect · ↑↓←→ navigate · live preview · Apply to save';
   return (
-    <div className="ds-review-ui fixed bottom-5 left-1/2 z-[99999] -translate-x-1/2 rounded-full border border-border bg-background/95 px-4 py-2 text-xs text-foreground shadow-md pointer-events-none">
+    <div className="ds-review-ui fixed bottom-5 left-1/2 z-40 -translate-x-1/2 rounded-full border border-border bg-background/95 px-4 py-2 text-xs text-foreground shadow-md pointer-events-none">
       {text}
     </div>
   );

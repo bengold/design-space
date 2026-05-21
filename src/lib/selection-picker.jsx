@@ -49,7 +49,9 @@ function SelectionBox({ el, variant }) {
   return (
     <div
       className={cn(
-        'pointer-events-none fixed z-[99990] box-border ds-review-ui',
+        // z-30: above the canvas, below the Sheet (z-50). Otherwise the
+        // selection outline shows through the edit panel.
+        'pointer-events-none fixed z-30 box-border ds-review-ui',
         // Figma-style outline only — no fill — so the element underneath stays
         // visible. Hover uses a thin dashed line; select uses a solid 1px.
         variant === 'select'
@@ -118,7 +120,7 @@ function useMarquee({ active, onCommit }) {
 
   const overlay = box ? (
     <div
-      className="pointer-events-none fixed z-[99991] border-2 border-dashed border-sky-400 bg-sky-400/10 ds-review-ui"
+      className="pointer-events-none fixed z-30 border-2 border-dashed border-sky-400 bg-sky-400/10 ds-review-ui"
       style={box}
     />
   ) : null;
