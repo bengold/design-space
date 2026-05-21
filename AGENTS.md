@@ -130,6 +130,30 @@ npx design-space tweaks merge [--design <name>] '{"fontSize":18}'
 - `hidden`: deleted artboard ids (scoped to `srcKey` — resets when artboard ids in `Design.jsx` change).
 - `srcKey`: joined artboard ids; do not set manually unless you know the format.
 
+## Pages: canvas vs raw
+
+A design can have multiple pages via `<DCPage id title>`. Each page picks its own rendering style:
+
+- **Canvas page** (default) — children are `<DCSection>`s of `<DCArtboard>`s. Renders inside the pan/zoom canvas with the usual chrome (grid, section titles, draggable artboards). Use for multi-artboard mockups where you want to compare variants.
+- **Raw page** (`<DCPage … raw>`) — children render full-viewport, no canvas, no pan/zoom. Use for standalone showcases, interactive demos, complex single-screen designs, or anything where the infinite canvas would be in the way.
+
+Both styles can coexist in one design. The active page lives in the host toolbar's page dropdown. `Cmd+]` / `Cmd+[` cycles.
+
+```jsx
+<DesignCanvas>
+  <DCPage id="onboarding" title="Onboarding">
+    <DCSection ...><DCArtboard ...>…</DCArtboard></DCSection>
+  </DCPage>
+  <DCPage id="cards" title="Cards" raw>
+    <IridescentCardShowcase />
+  </DCPage>
+</DesignCanvas>
+```
+
+### Per-page tweaks
+
+Each page registers its own tweaks by calling `useDesignTweaksDialKit(designName, pageConfig)` from inside its component. When the page is active those controls populate the floating Tweaks panel; switching pages unmounts the hook and the panel swaps to the new page's set. Values still **merge** in `tweaks.json` — fontSize from page A and suit from page B coexist on disk so switching back doesn't lose state.
+
 ## Choosing canvas vs tweaks (from Claude Design)
 
 Pick the presentation format by what you are exploring:
