@@ -355,9 +355,12 @@ function DesignCanvas({ children, minScale, maxScale, style }) {
   );
 }
 
-// DCPagePicker — floating segmented page picker at the top of the viewport.
-// position:fixed so it stays out of the pan/zoom transform.
+// DCPagePicker — floating page menu at the top of the viewport. Uses a
+// DropdownMenu so it scales gracefully to dozens of pages. position:fixed
+// keeps it out of the pan/zoom transform.
 function DCPagePicker({ pages, active, onChange }) {
+  const current = pages.find((p) => p.id === active) ?? pages[0];
+  const idx = pages.findIndex((p) => p.id === active);
   return (
     <div
       data-noncommentable=""
@@ -368,45 +371,37 @@ function DCPagePicker({ pages, active, onChange }) {
         left: '50%',
         transform: 'translateX(-50%)',
         zIndex: 20,
-        display: 'flex',
-        gap: 2,
-        padding: 4,
-        borderRadius: 999,
-        background: 'rgba(255, 255, 255, 0.85)',
-        border: '1px solid rgba(0, 0, 0, 0.08)',
-        boxShadow: '0 2px 8px rgba(0, 0, 0, 0.06)',
-        backdropFilter: 'blur(8px)',
-        WebkitBackdropFilter: 'blur(8px)',
-        fontSize: 12,
         fontFamily: 'ui-sans-serif, system-ui, sans-serif',
         userSelect: 'none',
       }}
     >
-      {pages.map((p) => {
-        const on = p.id === active;
-        return (
-          <button
-            key={p.id}
-            type="button"
-            onClick={() => onChange(p.id)}
-            style={{
-              appearance: 'none',
-              border: 0,
-              borderRadius: 999,
-              padding: '5px 12px',
-              fontSize: 12,
-              fontWeight: 500,
-              background: on ? '#29261b' : 'transparent',
-              color: on ? '#f6f4ef' : '#29261b',
-              cursor: 'pointer',
-              transition: 'background 0.12s, color 0.12s',
-            }}
-            title={`Switch to ${p.title}`}
-          >
-            {p.title}
-          </button>
-        );
-      })}
+      <DropdownMenu>
+        <DropdownMenuTrigger
+          render={
+            <Button
+              variant="outline"
+              size="sm"
+              className="!bg-background/85 !backdrop-blur"
+              title={`Switch page (⌘[ / ⌘]) — ${idx + 1} of ${pages.length}`}
+            >
+              <span className="text-foreground">{current?.title ?? '—'}</span>
+              <ChevronDown data-icon="inline-end" />
+            </Button>
+          }
+        />
+        <DropdownMenuContent align="center" className="min-w-[200px]">
+          {pages.map((p) => (
+            <DropdownMenuItem
+              key={p.id}
+              onClick={() => onChange(p.id)}
+              data-active={p.id === active || undefined}
+              className="data-[active]:bg-muted data-[active]:font-medium"
+            >
+              {p.title}
+            </DropdownMenuItem>
+          ))}
+        </DropdownMenuContent>
+      </DropdownMenu>
     </div>
   );
 }
