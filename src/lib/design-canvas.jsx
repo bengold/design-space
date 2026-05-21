@@ -134,19 +134,30 @@ function dcFlatten(children) {
 // ─────────────────────────────────────────────────────────────
 const DC_STATE_FILE = '.design-canvas.state.json';
 
-// DCPage — top-level grouping inside <DesignCanvas>. Each page has its own set
-// of sections; only the active page is rendered. The component itself just
-// declares the grouping — DesignCanvas does the work of finding active page
-// children and rendering them.
+// DCPage — top-level grouping inside <DesignCanvas>. Each page has its own
+// content; only the active page is rendered. The component itself is a no-op
+// — DesignCanvas walks the children to find pages.
 //
-//   <DesignCanvas>
-//     <DCPage id="main"  title="Main">
-//       <DCSection id="onboarding" title="Onboarding">…</DCSection>
-//     </DCPage>
-//     <DCPage id="specs" title="Specs">
-//       <DCSection id="components" title="Components">…</DCSection>
-//     </DCPage>
-//   </DesignCanvas>
+// Two flavors:
+//
+//   1. Canvas pages (default) — children are DCSections of DCArtboards. The
+//      page renders inside the pan/zoom DCViewport with the usual canvas
+//      chrome (grid, section titles, draggable artboards).
+//
+//        <DCPage id="onboarding" title="Onboarding">
+//          <DCSection id="flow" title="Onboarding"><DCArtboard…/></DCSection>
+//        </DCPage>
+//
+//   2. Raw pages (`raw`) — children render directly, no canvas, no pan/zoom.
+//      Use for full-screen showcases, interactive demos, or anything where
+//      the infinite canvas would get in the way.
+//
+//        <DCPage id="cards" title="Cards" raw>
+//          <IridescentCardShowcase />
+//        </DCPage>
+//
+// The agent picks per page — canvas for multi-artboard mockups, raw for
+// standalone screens. Both styles can coexist in one design.
 function DCPage({ children }) {
   return children;
 }
@@ -244,11 +255,14 @@ function DesignCanvas({ children, minScale, maxScale, style }) {
     return () => window.removeEventListener('message', onMsg);
   }, [isMultiPage, activePageId, pageNodes]);
 
-  // What actually renders inside the viewport: the active page's children in
-  // multi-page mode, otherwise the original children.
-  const renderedChildren = isMultiPage
-    ? (pageNodes.find((p) => p.props.id === activePageId)?.props.children ?? null)
-    : children;
+  // What actually renders: the active page's children in multi-page mode,
+  // otherwise the original children. Track the active page so we can skip
+  // the canvas chrome on `raw` pages.
+  const activePage = isMultiPage
+    ? (pageNodes.find((p) => p.props.id === activePageId) ?? null)
+    : null;
+  const isRawPage = activePage?.props.raw === true;
+  const renderedChildren = isMultiPage ? (activePage?.props.children ?? null) : children;
   // Hold rendering until the sidecar read settles so the saved order/titles
   // appear on first paint (no source-order flash). didRead gates writes until
   // the read settles so the empty initial state can't clobber a slow read;
@@ -294,41 +308,41 @@ function DesignCanvas({ children, minScale, maxScale, style }) {
   }, [state.sections]);
 
   // Build registries synchronously from the visible children so FocusOverlay
-  // can read them in the same render. Fragments are flattened; wrapping in
-  // other elements still opts out of focus/reorder. In multi-page mode this
-  // walks only the active page's sections.
+  // can read them in the same render. Skipped entirely for raw pages — they
+  // bypass the canvas and have no DCSections to track.
   const registry = {}; // slotId -> { sectionId, artboard }
   const sectionMeta = {}; // sectionId -> { title, subtitle, slotIds[] }
   const sectionOrder = [];
-  dcFlatten(renderedChildren).forEach((sec) => {
-    if (!sec || sec.type !== DCSection) return;
-    const sid = sec.props.id ?? sec.props.title;
-    if (!sid) return;
-    sectionOrder.push(sid);
-    const persisted = state.sections[sid] || {};
-    const abs = [];
-    dcFlatten(sec.props.children).forEach((ab) => {
-      if (!ab || ab.type !== DCArtboard) return;
-      const aid = ab.props.id ?? ab.props.label;
-      if (aid) abs.push([aid, ab]);
+  if (!isRawPage)
+    dcFlatten(renderedChildren).forEach((sec) => {
+      if (!sec || sec.type !== DCSection) return;
+      const sid = sec.props.id ?? sec.props.title;
+      if (!sid) return;
+      sectionOrder.push(sid);
+      const persisted = state.sections[sid] || {};
+      const abs = [];
+      dcFlatten(sec.props.children).forEach((ab) => {
+        if (!ab || ab.type !== DCArtboard) return;
+        const aid = ab.props.id ?? ab.props.label;
+        if (aid) abs.push([aid, ab]);
+      });
+      // hidden is scoped to one source revision — when the agent regenerates
+      // (artboard-ID set changes), prior deletes don't apply to new content.
+      const srcKey = abs.map(([k]) => k).join('\x1f');
+      const hidden = persisted.srcKey === srcKey ? persisted.hidden || [] : [];
+      const srcIds = [];
+      abs.forEach(([aid, ab]) => {
+        if (hidden.includes(aid)) return;
+        registry[`${sid}/${aid}`] = { sectionId: sid, artboard: ab };
+        srcIds.push(aid);
+      });
+      const kept = (persisted.order || []).filter((k) => srcIds.includes(k));
+      sectionMeta[sid] = {
+        title: persisted.title ?? sec.props.title,
+        subtitle: sec.props.subtitle,
+        slotIds: [...kept, ...srcIds.filter((k) => !kept.includes(k))],
+      };
     });
-    // hidden is scoped to one source revision — when the agent regenerates
-    // (artboard-ID set changes), prior deletes don't apply to new content.
-    const srcKey = abs.map(([k]) => k).join('\x1f');
-    const hidden = persisted.srcKey === srcKey ? persisted.hidden || [] : [];
-    const srcIds = [];
-    abs.forEach(([aid, ab]) => {
-      if (hidden.includes(aid)) return;
-      registry[`${sid}/${aid}`] = { sectionId: sid, artboard: ab };
-      srcIds.push(aid);
-    });
-    const kept = (persisted.order || []).filter((k) => srcIds.includes(k));
-    sectionMeta[sid] = {
-      title: persisted.title ?? sec.props.title,
-      subtitle: sec.props.subtitle,
-      slotIds: [...kept, ...srcIds.filter((k) => !kept.includes(k))],
-    };
-  });
 
   const api = React.useMemo(
     () => ({
@@ -366,10 +380,27 @@ function DesignCanvas({ children, minScale, maxScale, style }) {
 
   return (
     <DCCtx.Provider value={api}>
-      <DCViewport minScale={minScale} maxScale={maxScale} style={style}>
-        {ready && renderedChildren}
-      </DCViewport>
-      {state.focus && registry[state.focus] && (
+      {isRawPage ? (
+        // Raw page — bypass the pan/zoom canvas entirely. Children render
+        // full-viewport. Used for standalone showcases / full-screen demos
+        // where the canvas chrome would just be in the way.
+        <div
+          style={{
+            width: '100vw',
+            height: '100vh',
+            overflow: 'auto',
+            boxSizing: 'border-box',
+            background: DC.bg,
+          }}
+        >
+          {ready && renderedChildren}
+        </div>
+      ) : (
+        <DCViewport minScale={minScale} maxScale={maxScale} style={style}>
+          {ready && renderedChildren}
+        </DCViewport>
+      )}
+      {!isRawPage && state.focus && registry[state.focus] && (
         <DCFocusOverlay
           entry={registry[state.focus]}
           sectionMeta={sectionMeta}

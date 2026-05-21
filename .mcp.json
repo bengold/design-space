@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "design-space": {
+      "command": "node",
+      "args": ["${CODEX_PLUGIN_ROOT}/mcp-server/dist/index.mjs"]
+    }
+  }
+}

@@ -1,0 +1,30 @@
+{
+  "name": "design-space",
+  "version": "0.4.0",
+  "description": "Local Claude Design host for coding agents: canvas, tweaks, comments, edit overrides, and refinement Q&A.",
+  "author": {
+    "name": "Ben Gold",
+    "url": "https://github.com/bengold"
+  },
+  "homepage": "https://github.com/bengold/design-space",
+  "repository": "https://github.com/bengold/design-space",
+  "license": "MIT",
+  "keywords": ["design", "ui", "canvas", "claude-design", "prototyping", "mcp", "feedback"],
+  "skills": "./skills/",
+  "mcpServers": "./.mcp.json",
+  "interface": {
+    "displayName": "Design Space",
+    "shortDescription": "Local design canvas, tweaks, comments, and Q&A for coding agents.",
+    "longDescription": "Design Space lets Codex work with a local Claude Design-style host. The plugin packages the design-space skill and MCP tools for reading comments and overrides, asking refinement questions, polling review events, exporting feedback, and resolving comments while humans preview designs in the browser.",
+    "developerName": "Ben Gold",
+    "category": "Design",
+    "capabilities": ["Interactive", "Read", "Write"],
+    "websiteURL": "https://github.com/bengold/design-space",
+    "brandColor": "#2A6FDB",
+    "defaultPrompt": [
+      "Create Design Space artboard variants with tweaks",
+      "Read Design Space feedback and apply comments",
+      "Ask refinement questions for the active design"
+    ]
+  }
+}

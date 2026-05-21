@@ -13,8 +13,57 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-const projectRoot =
-  process.env.DESIGN_SPACE_ROOT || process.env.CLAUDE_PROJECT_DIR || process.cwd();
+function readHookInput() {
+  if (process.stdin.isTTY) return {};
+  try {
+    const raw = fs.readFileSync(0, 'utf8').trim();
+    return raw ? JSON.parse(raw) : {};
+  } catch {
+    return {};
+  }
+}
+
+function firstString(...values) {
+  return values.find((value) => typeof value === 'string' && value.trim() !== '') || null;
+}
+
+function firstWorkspaceRoot(input) {
+  return Array.isArray(input?.workspace_roots)
+    ? input.workspace_roots.find((value) => typeof value === 'string' && value.trim() !== '')
+    : null;
+}
+
+function hasDesignSpaceRoot(candidate) {
+  return Boolean(
+    candidate && fs.existsSync(path.join(path.resolve(candidate), 'designs', 'active.json')),
+  );
+}
+
+function resolveProjectRoot(input) {
+  const explicit = firstString(process.env.DESIGN_SPACE_ROOT);
+  if (explicit) return path.resolve(explicit);
+
+  const candidates = [
+    input?.cwd,
+    firstWorkspaceRoot(input),
+    process.env.CODEX_PROJECT_DIR,
+    process.env.CODEX_PROJECT_ROOT,
+    process.env.CODEX_WORKSPACE_DIR,
+    process.env.CODEX_WORKSPACE_ROOT,
+    process.env.CLAUDE_PROJECT_DIR,
+    process.env.CLAUDE_PROJECT_ROOT,
+    process.env.CURSOR_PROJECT_DIR,
+    process.env.INIT_CWD,
+    process.env.PWD,
+    process.cwd(),
+  ];
+
+  const found = candidates.find(hasDesignSpaceRoot);
+  return path.resolve(found || process.cwd());
+}
+
+const hookInput = readHookInput();
+const projectRoot = resolveProjectRoot(hookInput);
 const designsDir = path.join(projectRoot, 'designs');
 const activeFile = path.join(designsDir, 'active.json');
 
@@ -35,7 +84,10 @@ const designDir = path.join(designsDir, active);
 const eventsFile = path.join(designDir, 'events.jsonl');
 if (!fs.existsSync(eventsFile)) process.exit(0);
 
-const dataDir = process.env.CLAUDE_PLUGIN_DATA || path.join(projectRoot, '.claude', 'design-space');
+const dataDir =
+  process.env.CODEX_PLUGIN_DATA ||
+  process.env.CLAUDE_PLUGIN_DATA ||
+  path.join(projectRoot, '.codex', 'design-space');
 fs.mkdirSync(dataDir, { recursive: true });
 const stateFile = path.join(dataDir, `${active}-last-poll.iso`);
 const lastPoll = (fs.existsSync(stateFile) && fs.readFileSync(stateFile, 'utf8').trim()) || '';

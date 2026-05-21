@@ -15553,13 +15553,29 @@ function buildAgentInboxMarkdown(designName, inbox) {
 }
 
 // lib/design-space-core.mjs
+function hasDesignSpaceRoot(candidate) {
+  return Boolean(candidate && fs.existsSync(path.join(candidate, "designs", "active.json")));
+}
 function findProjectRoot() {
   if (process.env.DESIGN_SPACE_ROOT) {
     return path.resolve(process.env.DESIGN_SPACE_ROOT);
   }
+  for (const value of [
+    process.env.CODEX_PROJECT_DIR,
+    process.env.CODEX_PROJECT_ROOT,
+    process.env.CODEX_WORKSPACE_DIR,
+    process.env.CODEX_WORKSPACE_ROOT,
+    process.env.CLAUDE_PROJECT_DIR,
+    process.env.CLAUDE_PROJECT_ROOT,
+    process.env.CURSOR_PROJECT_DIR,
+    process.env.INIT_CWD,
+    process.env.PWD
+  ]) {
+    if (hasDesignSpaceRoot(value)) return path.resolve(value);
+  }
   let dir = process.cwd();
   for (let i = 0; i < 8; i++) {
-    if (fs.existsSync(path.join(dir, "designs", "active.json"))) return dir;
+    if (hasDesignSpaceRoot(dir)) return dir;
     const parent = path.dirname(dir);
     if (parent === dir) break;
     dir = parent;

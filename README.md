@@ -13,7 +13,7 @@ Open http://localhost:5173/ — toolbar shows active design, zoom, **Comment**, 
 
 **Refinement questions:** `design-space questions ask` opens the modal; `design-space questions wait` blocks until the user submits.
 
-**Agent integration:** MCP server (`npm run mcp`), `events.jsonl` polling, and the bundled Claude Code / Cursor skills — see [docs/mcp-and-hooks.md](docs/mcp-and-hooks.md) and the install instructions below.
+**Agent integration:** MCP server (`npm run mcp`), `events.jsonl` polling, and the bundled Codex / Claude Code / Cursor skills — see [docs/mcp-and-hooks.md](docs/mcp-and-hooks.md) and the install instructions below.
 
 **Comment / Edit:** DevTools-style outlines, arrow-key tree walk, drag box-select (comments), Figma-like CSS inspector panel.
 
@@ -101,6 +101,12 @@ For Claude Code specifically, the repo ships a marketplace + plugin manifest tha
 ```
 
 The MCP server resolves the project root from `$DESIGN_SPACE_ROOT` (set automatically by the plugin to `$CLAUDE_PROJECT_DIR`), falling back to walking up from `cwd()` to find `designs/active.json`.
+
+## Install as a Codex plugin
+
+The Codex plugin version lives in `.codex-plugin/plugin.json` and bundles the same skill plus the prebuilt MCP server via `.mcp.json`. Codex also discovers `hooks/hooks.json`, which runs the feedback poller on `UserPromptSubmit` so new Design Space comments and edits can be surfaced to the agent on the next turn.
+
+The MCP server and hook both resolve the active Design Space project from `$DESIGN_SPACE_ROOT`, Codex/Claude/Cursor project env vars, hook `cwd`/`workspace_roots`, or by walking up from the current working directory to find `designs/active.json`.
 
 ## Cursor / Claude Desktop setup
 
