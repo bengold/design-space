@@ -36,6 +36,21 @@ function colorToHex(value) {
   return c.isValid() ? c.toHex() : '#00000000';
 }
 
+// Canonical representation for a persisted color:
+//   • fully opaque → 6-char hex (#RRGGBB, uppercased)
+//   • transparent  → rgba(R, G, B, A) with 2 decimal alpha
+// react-colorful's HexAlphaColorPicker always emits 8-char hex (#RRGGBBAA);
+// we re-format so the input shows the friendlier representation.
+function normalizeColorValue(input) {
+  if (!input) return '';
+  const c = colord(String(input).trim());
+  if (!c.isValid()) return input;
+  const { r, g, b, a } = c.toRgb();
+  if (a >= 1) return c.toHex().toUpperCase().slice(0, 7);
+  const alpha = Math.round(a * 100) / 100;
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
+
 // ─── validation ───────────────────────────────────────────────────────────────
 
 const LENGTH_RE = /^-?[\d.]+(px|em|rem|%|vh|vw|fr|auto)?$|^auto$/;
@@ -335,9 +350,12 @@ function ColorRow({ label, value, onChange, full = false }) {
     if (v === '' || colord(v).isValid()) onChange(v);
   };
 
+  // Picker emits 8-char hex (#RRGGBBAA); persist as either a 6-char hex
+  // (#RRGGBB) or rgba(...) depending on whether alpha is set.
   const handlePicker = (v) => {
-    setDraft(v);
-    onChange(v);
+    const normalized = normalizeColorValue(v);
+    setDraft(normalized);
+    onChange(normalized);
   };
 
   return (

@@ -52,13 +52,18 @@ function canvasRule(canvas) {
   if (!canvas) return '';
   const decl = Object.entries(canvas)
     .filter(([, v]) => v != null && String(v).trim() !== '')
-    .map(([k, v]) => `${k.replace(/[A-Z]/g, (m) => `-${m.toLowerCase()}`)}:${v}`)
+    // `!important` beats DesignCanvas's own inline `fontFamily`/`background`
+    // declarations on the .design-canvas element (inline > rule specificity
+    // otherwise). Per-element overrides — [data-ds-ref="X"]{…} — still win
+    // for their own descendants because they're set directly on the element
+    // rather than inherited.
+    .map(([k, v]) => `${k.replace(/[A-Z]/g, (m) => `-${m.toLowerCase()}`)}:${v} !important`)
     .join(';');
   // Scope to `.design-canvas` only. Inherited properties (font-family,
   // font-size, color) flow into every artboard via normal CSS inheritance,
   // and non-inherited ones (background-color) stay on the canvas surface.
   // The Sheet/popover chrome lives at the body level — a body/:root rule
-  // would cascade into the edit panel itself, which is the bug we just hit.
+  // would cascade into the edit panel itself, which is the bug we hit earlier.
   return decl ? `.design-canvas{${decl}}` : '';
 }
 
