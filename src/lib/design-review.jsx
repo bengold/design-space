@@ -54,7 +54,12 @@ function canvasRule(canvas) {
     .filter(([, v]) => v != null && String(v).trim() !== '')
     .map(([k, v]) => `${k.replace(/[A-Z]/g, (m) => `-${m.toLowerCase()}`)}:${v}`)
     .join(';');
-  return decl ? `:root,body,.design-canvas{${decl}}` : '';
+  // Scope to `.design-canvas` only. Inherited properties (font-family,
+  // font-size, color) flow into every artboard via normal CSS inheritance,
+  // and non-inherited ones (background-color) stay on the canvas surface.
+  // The Sheet/popover chrome lives at the body level — a body/:root rule
+  // would cascade into the edit panel itself, which is the bug we just hit.
+  return decl ? `.design-canvas{${decl}}` : '';
 }
 
 function OverridesInjector({ byRef, canvas }) {
