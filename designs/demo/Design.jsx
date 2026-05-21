@@ -1,5 +1,5 @@
 import React from 'react';
-import { DesignCanvas, DCSection, DCArtboard } from '../../src/lib/design-canvas.jsx';
+import { DesignCanvas, DCPage, DCSection, DCArtboard } from '../../src/lib/design-canvas.jsx';
 import { useDesignTweaksDialKit } from '../../src/preview/useDesignTweaksDialKit.js';
 
 // DialKit config — every value is a tunable control in the floating Tweaks
@@ -387,25 +387,33 @@ export default function Design({ designName = 'demo' }) {
 
   return (
     <DesignCanvas>
-      <DCSection id="onboarding" title="Onboarding" subtitle="Welcome → Connect → Success">
-        <DCArtboard id="a" label="A · Welcome" width={402} height={874}>
-          <WelcomeScreen t={t} p={p} />
-        </DCArtboard>
-        <DCArtboard id="b" label="B · Connect" width={402} height={874}>
-          <ConnectScreen t={t} p={p} />
-        </DCArtboard>
-        <DCArtboard id="c" label="C · Success" width={402} height={874}>
-          <SuccessScreen t={t} p={p} />
-        </DCArtboard>
-      </DCSection>
-      <DCSection id="dashboard" title="Dashboard" subtitle="Where the money is, where it went">
-        <DCArtboard id="balance" label="Balance" width={402} height={874}>
-          <BalanceScreen t={t} p={p} />
-        </DCArtboard>
-        <DCArtboard id="insights" label="Insights" width={402} height={874}>
-          <InsightsScreen t={t} p={p} />
-        </DCArtboard>
-      </DCSection>
+      <DCPage id="onboarding" title="Onboarding">
+        <DCSection id="onboarding-flow" title="Onboarding" subtitle="Welcome → Connect → Success">
+          <DCArtboard id="a" label="A · Welcome" width={402} height={874}>
+            <WelcomeScreen t={t} p={p} />
+          </DCArtboard>
+          <DCArtboard id="b" label="B · Connect" width={402} height={874}>
+            <ConnectScreen t={t} p={p} />
+          </DCArtboard>
+          <DCArtboard id="c" label="C · Success" width={402} height={874}>
+            <SuccessScreen t={t} p={p} />
+          </DCArtboard>
+        </DCSection>
+      </DCPage>
+      <DCPage id="dashboard" title="Dashboard">
+        <DCSection
+          id="dashboard-views"
+          title="Dashboard"
+          subtitle="Where the money is, where it went"
+        >
+          <DCArtboard id="balance" label="Balance" width={402} height={874}>
+            <BalanceScreen t={t} p={p} />
+          </DCArtboard>
+          <DCArtboard id="insights" label="Insights" width={402} height={874}>
+            <InsightsScreen t={t} p={p} />
+          </DCArtboard>
+        </DCSection>
+      </DCPage>
     </DesignCanvas>
   );
 }

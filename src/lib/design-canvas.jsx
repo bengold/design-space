@@ -134,8 +134,89 @@ function dcFlatten(children) {
 // ─────────────────────────────────────────────────────────────
 const DC_STATE_FILE = '.design-canvas.state.json';
 
+// DCPage — top-level grouping inside <DesignCanvas>. Each page has its own set
+// of sections; only the active page is rendered. The component itself just
+// declares the grouping — DesignCanvas does the work of finding active page
+// children and rendering them.
+//
+//   <DesignCanvas>
+//     <DCPage id="main"  title="Main">
+//       <DCSection id="onboarding" title="Onboarding">…</DCSection>
+//     </DCPage>
+//     <DCPage id="specs" title="Specs">
+//       <DCSection id="components" title="Components">…</DCSection>
+//     </DCPage>
+//   </DesignCanvas>
+function DCPage({ children }) {
+  return children;
+}
+
 function DesignCanvas({ children, minScale, maxScale, style }) {
   const [state, setState] = React.useState({ sections: {}, focus: null });
+
+  // Multi-page mode kicks in as soon as any DCPage children appear. Single-page
+  // (legacy) is the default — DCSection children are treated as the implicit
+  // "main" page.
+  const childList = dcFlatten(children);
+  const pageNodes = childList.filter((c) => c && c.type === DCPage);
+  const isMultiPage = pageNodes.length > 0;
+
+  const pageKey = `dc-active-page:${typeof location !== 'undefined' ? location.pathname : '/'}`;
+  const [activePageId, setActivePageId] = React.useState(() => {
+    if (!isMultiPage) return null;
+    try {
+      const saved = typeof localStorage !== 'undefined' && localStorage.getItem(pageKey);
+      if (saved && pageNodes.find((p) => p.props.id === saved)) return saved;
+    } catch {
+      /* ignore */
+    }
+    return pageNodes[0]?.props.id ?? null;
+  });
+
+  React.useEffect(() => {
+    if (!isMultiPage || !activePageId) return;
+    try {
+      localStorage.setItem(pageKey, activePageId);
+    } catch {
+      /* ignore */
+    }
+  }, [activePageId, isMultiPage, pageKey]);
+
+  // If the JSX no longer contains the persisted active page (renamed/removed),
+  // snap to the first available page so the canvas doesn't render empty.
+  React.useEffect(() => {
+    if (!isMultiPage) return;
+    if (!pageNodes.find((p) => p.props.id === activePageId)) {
+      setActivePageId(pageNodes[0]?.props.id ?? null);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isMultiPage, pageNodes.map((p) => p.props.id).join('|')]);
+
+  // Cycle pages with Cmd+] / Cmd+[ (matching Figma). Ignored when focus is in
+  // editable content.
+  React.useEffect(() => {
+    if (!isMultiPage) return undefined;
+    const onKey = (e) => {
+      const meta = e.metaKey || e.ctrlKey;
+      if (!meta || e.altKey) return;
+      if (e.target?.closest?.('input, textarea, select, [contenteditable="true"]')) return;
+      if (e.key !== ']' && e.key !== '[') return;
+      e.preventDefault();
+      const ids = pageNodes.map((p) => p.props.id);
+      const idx = ids.indexOf(activePageId);
+      if (idx < 0) return;
+      const next = e.key === ']' ? (idx + 1) % ids.length : (idx - 1 + ids.length) % ids.length;
+      setActivePageId(ids[next]);
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [isMultiPage, activePageId, pageNodes]);
+
+  // What actually renders inside the viewport: the active page's children in
+  // multi-page mode, otherwise the original children.
+  const renderedChildren = isMultiPage
+    ? (pageNodes.find((p) => p.props.id === activePageId)?.props.children ?? null)
+    : children;
   // Hold rendering until the sidecar read settles so the saved order/titles
   // appear on first paint (no source-order flash). didRead gates writes until
   // the read settles so the empty initial state can't clobber a slow read;
@@ -180,13 +261,14 @@ function DesignCanvas({ children, minScale, maxScale, style }) {
     return () => clearTimeout(t);
   }, [state.sections]);
 
-  // Build registries synchronously from children so FocusOverlay can read
-  // them in the same render. Fragments are flattened; wrapping in other
-  // elements still opts out of focus/reorder.
+  // Build registries synchronously from the visible children so FocusOverlay
+  // can read them in the same render. Fragments are flattened; wrapping in
+  // other elements still opts out of focus/reorder. In multi-page mode this
+  // walks only the active page's sections.
   const registry = {}; // slotId -> { sectionId, artboard }
   const sectionMeta = {}; // sectionId -> { title, subtitle, slotIds[] }
   const sectionOrder = [];
-  dcFlatten(children).forEach((sec) => {
+  dcFlatten(renderedChildren).forEach((sec) => {
     if (!sec || sec.type !== DCSection) return;
     const sid = sec.props.id ?? sec.props.title;
     if (!sid) return;
@@ -253,8 +335,15 @@ function DesignCanvas({ children, minScale, maxScale, style }) {
   return (
     <DCCtx.Provider value={api}>
       <DCViewport minScale={minScale} maxScale={maxScale} style={style}>
-        {ready && children}
+        {ready && renderedChildren}
       </DCViewport>
+      {isMultiPage && (
+        <DCPagePicker
+          pages={pageNodes.map((p) => ({ id: p.props.id, title: p.props.title ?? p.props.id }))}
+          active={activePageId}
+          onChange={setActivePageId}
+        />
+      )}
       {state.focus && registry[state.focus] && (
         <DCFocusOverlay
           entry={registry[state.focus]}
@@ -263,6 +352,62 @@ function DesignCanvas({ children, minScale, maxScale, style }) {
         />
       )}
     </DCCtx.Provider>
+  );
+}
+
+// DCPagePicker — floating segmented page picker at the top of the viewport.
+// position:fixed so it stays out of the pan/zoom transform.
+function DCPagePicker({ pages, active, onChange }) {
+  return (
+    <div
+      data-noncommentable=""
+      className="ds-review-ui"
+      style={{
+        position: 'fixed',
+        top: 12,
+        left: '50%',
+        transform: 'translateX(-50%)',
+        zIndex: 20,
+        display: 'flex',
+        gap: 2,
+        padding: 4,
+        borderRadius: 999,
+        background: 'rgba(255, 255, 255, 0.85)',
+        border: '1px solid rgba(0, 0, 0, 0.08)',
+        boxShadow: '0 2px 8px rgba(0, 0, 0, 0.06)',
+        backdropFilter: 'blur(8px)',
+        WebkitBackdropFilter: 'blur(8px)',
+        fontSize: 12,
+        fontFamily: 'ui-sans-serif, system-ui, sans-serif',
+        userSelect: 'none',
+      }}
+    >
+      {pages.map((p) => {
+        const on = p.id === active;
+        return (
+          <button
+            key={p.id}
+            type="button"
+            onClick={() => onChange(p.id)}
+            style={{
+              appearance: 'none',
+              border: 0,
+              borderRadius: 999,
+              padding: '5px 12px',
+              fontSize: 12,
+              fontWeight: 500,
+              background: on ? '#29261b' : 'transparent',
+              color: on ? '#f6f4ef' : '#29261b',
+              cursor: 'pointer',
+              transition: 'background 0.12s, color 0.12s',
+            }}
+            title={`Switch to ${p.title}`}
+          >
+            {p.title}
+          </button>
+        );
+      })}
+    </div>
   );
 }
 
@@ -1494,4 +1639,4 @@ async function writeDesignState(file, content) {
   });
 }
 
-export { DesignCanvas, DCSection, DCArtboard, DCPostIt, DCEditable };
+export { DesignCanvas, DCPage, DCSection, DCArtboard, DCPostIt, DCEditable };
