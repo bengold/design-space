@@ -85,11 +85,7 @@ function isAllOfTheAbove(label) {
  */
 function TextOptionsControl({ q, value, onChange }) {
   const selected = new Set(
-    Array.isArray(value)
-      ? value.map(String)
-      : value != null && value !== ''
-        ? [String(value)]
-        : [],
+    Array.isArray(value) ? value.map(String) : value != null && value !== '' ? [String(value)] : [],
   );
   const knownOptions = q.options ?? [];
   // Discover any custom "other" value that isn't in the option list.
@@ -256,10 +252,7 @@ function SvgOptionsControl({ q, value, onChange }) {
               : 'border-input bg-background hover:bg-muted',
           )}
         >
-          <span
-            className="flex max-h-full max-w-full"
-            dangerouslySetInnerHTML={{ __html: svg }}
-          />
+          <span className="flex max-h-full max-w-full" dangerouslySetInnerHTML={{ __html: svg }} />
         </button>
       ))}
     </div>

@@ -240,7 +240,17 @@ export function useSelectionPicker({ active, multiSelect, onPick, onElementsChan
       document.removeEventListener('keydown', onKey, true);
       document.body.style.cursor = '';
     };
-  }, [active, multiSelect, onPick, onElementsChange, pickPrimary, setSelection, selected, hoverEl, dragging]);
+  }, [
+    active,
+    multiSelect,
+    onPick,
+    onElementsChange,
+    pickPrimary,
+    setSelection,
+    selected,
+    hoverEl,
+    dragging,
+  ]);
 
   const overlay = active ? (
     <>

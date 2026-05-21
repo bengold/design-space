@@ -1,4 +1,12 @@
-import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import React, {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import { autoUpdate } from '@floating-ui/dom';
 import { useFloating, offset as offsetMiddleware, flip, shift } from '@floating-ui/react';
 import { Send, Trash2, X } from 'lucide-react';
@@ -214,9 +222,7 @@ function CommentPopover({
       <div className="flex items-start justify-between gap-2 border-b border-border px-3 py-2">
         <div className="flex flex-col gap-0.5">
           <div className="text-sm font-medium leading-tight">{title}</div>
-          {mode === 'detail' && (
-            <p className="text-[11px] text-muted-foreground">{subtitle}</p>
-          )}
+          {mode === 'detail' && <p className="text-[11px] text-muted-foreground">{subtitle}</p>}
         </div>
         <button
           type="button"
@@ -584,7 +590,12 @@ export function DesignReviewShell({ designName, children }) {
         if (sendToAgent) {
           next = await sendCommentToAgent(designName, next, questions, activeCommentId);
           window.parent.postMessage(
-            { type: '__review_event', designName, eventType: 'comment.sent', commentId: activeCommentId },
+            {
+              type: '__review_event',
+              designName,
+              eventType: 'comment.sent',
+              commentId: activeCommentId,
+            },
             '*',
           );
         }
@@ -631,9 +642,7 @@ export function DesignReviewShell({ designName, children }) {
   sendOneRef.current = sendOne;
 
   const sendAllUnsent = useCallback(async () => {
-    const ids = comments
-      .filter((c) => c.status !== 'resolved' && !c.sentToAgent)
-      .map((c) => c.id);
+    const ids = comments.filter((c) => c.status !== 'resolved' && !c.sentToAgent).map((c) => c.id);
     if (ids.length === 0) return;
     setCommentBusy(true);
     try {
@@ -717,11 +726,7 @@ export function DesignReviewShell({ designName, children }) {
       <OverridesInjector byRef={overrides} />
       {children}
       {selectionOverlay}
-      <CommentPinLayer
-        comments={comments}
-        highlighted={highlighted}
-        onSelect={openCommentPanel}
-      />
+      <CommentPinLayer comments={comments} highlighted={highlighted} onSelect={openCommentPanel} />
 
       <CommentPopover
         open={!!pendingContexts}

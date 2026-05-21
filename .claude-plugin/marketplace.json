@@ -8,7 +8,8 @@
     {
       "name": "design-space",
       "source": "./",
-      "description": "Edit designs/<name>/Design.jsx, read human comments/overrides, ask refinement questions, poll review events. Ships the design-space skill and a self-contained stdio MCP server.",
+      "description": "Edit designs/<name>/Design.jsx, read human comments/overrides, ask refinement questions, poll review events. Ships the design-space skill, a self-contained stdio MCP server, and a UserPromptSubmit hook that auto-surfaces new comments/edits each turn.",
+      "version": "0.3.0",
       "homepage": "https://github.com/bengold/design-space",
       "repository": "https://github.com/bengold/design-space",
       "license": "MIT",

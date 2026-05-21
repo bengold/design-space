@@ -1,10 +1,6 @@
 import React from 'react';
 import { useDialKit } from 'dialkit';
-import {
-  loadTweakValues,
-  loadTweaksFromLocalStorage,
-  persistTweakEdits,
-} from './tweakStorage.js';
+import { loadTweakValues, loadTweaksFromLocalStorage, persistTweakEdits } from './tweakStorage.js';
 
 // ── seedConfig ──────────────────────────────────────────────────────────────
 // Walks the user-authored DialKit config and rewrites the default of any leaf
@@ -70,12 +66,7 @@ function seedConfig(config, seed) {
 }
 
 function isSliderTuple(v) {
-  return (
-    Array.isArray(v) &&
-    v.length > 0 &&
-    v.length <= 4 &&
-    typeof v[0] === 'number'
-  );
+  return Array.isArray(v) && v.length > 0 && v.length <= 4 && typeof v[0] === 'number';
 }
 
 function isTaggedConfig(v) {
@@ -83,12 +74,7 @@ function isTaggedConfig(v) {
 }
 
 function isFolder(v) {
-  return (
-    typeof v === 'object' &&
-    v !== null &&
-    !Array.isArray(v) &&
-    typeof v.type !== 'string'
-  );
+  return typeof v === 'object' && v !== null && !Array.isArray(v) && typeof v.type !== 'string';
 }
 
 // ── flatten ────────────────────────────────────────────────────────────────
@@ -204,7 +190,9 @@ function extractDefaults(config) {
       if (raw.type === 'color') out[key] = raw.default ?? '#000000';
       else if (raw.type === 'text') out[key] = raw.default ?? '';
       else if (raw.type === 'select')
-        out[key] = raw.default ?? (typeof raw.options?.[0] === 'string' ? raw.options[0] : raw.options?.[0]?.value);
+        out[key] =
+          raw.default ??
+          (typeof raw.options?.[0] === 'string' ? raw.options[0] : raw.options?.[0]?.value);
     } else if (isFolder(raw)) {
       out[key] = extractDefaults(raw);
     }

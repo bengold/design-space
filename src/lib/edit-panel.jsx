@@ -133,7 +133,10 @@ export function validateCssText(text) {
 
   // Strip nested blocks for the missing-semicolon check.
   const flat = s.replace(/\{[^}]*\}/g, '');
-  const parts = flat.split(';').map((p) => p.trim()).filter(Boolean);
+  const parts = flat
+    .split(';')
+    .map((p) => p.trim())
+    .filter(Boolean);
   // Every part except possibly the last must look like `prop: value`.
   for (let i = 0; i < parts.length - 1; i += 1) {
     if (!parts[i].includes(':')) return 'Missing semicolon or colon';
@@ -222,8 +225,7 @@ function NumericRow({ label, value, onChange, unit = 'px', full = false, styleKe
   }, [value, unit]);
 
   const joined = joinUnit(draftNum, u || unit);
-  const valid =
-    !styleKey || draftNum === '' ? true : validateStyleValue(styleKey, joined);
+  const valid = !styleKey || draftNum === '' ? true : validateStyleValue(styleKey, joined);
   const invalid = valid !== true;
 
   const handleChange = (v) => {
@@ -234,11 +236,27 @@ function NumericRow({ label, value, onChange, unit = 'px', full = false, styleKe
     }
   };
 
+  // Arrow-up / arrow-down bumps the numeric value by ±1 (×10 with Shift,
+  // ×0.1 with Alt — matching Figma / DevTools convention).
+  const handleKeyDown = (e) => {
+    if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return;
+    const current = parseFloat(draftNum);
+    if (!Number.isFinite(current)) return;
+    e.preventDefault();
+    const step = e.shiftKey ? 10 : e.altKey ? 0.1 : 1;
+    const direction = e.key === 'ArrowUp' ? 1 : -1;
+    const next = current + step * direction;
+    // Round to 4 decimals to avoid float drift (1.1 - 0.1 = 1.0000000000000002).
+    const rounded = Math.round(next * 10000) / 10000;
+    handleChange(String(rounded));
+  };
+
   return (
     <FieldShell label={label} className={full ? 'w-full' : undefined} invalid={invalid}>
       <FieldInput
         value={draftNum}
         onChange={handleChange}
+        onKeyDown={handleKeyDown}
         inputMode="decimal"
         invalid={invalid}
       />
@@ -247,15 +265,7 @@ function NumericRow({ label, value, onChange, unit = 'px', full = false, styleKe
   );
 }
 
-function TextRow({
-  label,
-  value,
-  onChange,
-  placeholder,
-  full = false,
-  mono = false,
-  styleKey,
-}) {
+function TextRow({ label, value, onChange, placeholder, full = false, mono = false, styleKey }) {
   const validate = styleKey ? (v) => validateStyleValue(styleKey, v) : null;
   const { draft, setDraft, error } = useDraft(value, validate);
   const invalid = !!error;
@@ -368,6 +378,14 @@ function ColorRow({ label, value, onChange, full = false }) {
 
 function OpacityRow({ value, onChange }) {
   const pct = opacityPercent(value);
+  // Base UI's Slider passes a number for single-thumb, array for range. Handle
+  // both so we don't quietly fail.
+  const apply = (v) => {
+    const n = Array.isArray(v) ? v[0] : v;
+    if (!Number.isFinite(n)) return;
+    const clamped = Math.min(1, Math.max(0, n / 100));
+    onChange(String(clamped));
+  };
   return (
     <FieldShell label="Opacity" className="w-full">
       <Slider
@@ -375,7 +393,7 @@ function OpacityRow({ value, onChange }) {
         min={0}
         max={100}
         step={1}
-        onValueChange={([v]) => onChange(String(Math.min(1, Math.max(0, v / 100))))}
+        onValueChange={apply}
         className="min-w-0 flex-1"
       />
       <span className="w-8 shrink-0 text-right text-xs tabular-nums text-foreground">{pct}</span>
@@ -604,10 +622,7 @@ function EditPanelBody({ el, overrides, onApply, onClose }) {
     onClose();
   };
 
-  const hasChanges =
-    Object.keys(styles).length > 0 ||
-    cssText.trim() !== '' ||
-    textChanged;
+  const hasChanges = Object.keys(styles).length > 0 || cssText.trim() !== '' || textChanged;
 
   return (
     <>

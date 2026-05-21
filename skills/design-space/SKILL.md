@@ -19,7 +19,7 @@ description: >-
 
 **Do not** rely on page load for questions. Use **`design_space_questions_ask`** then **`design_space_questions_wait`**.
 
-**Do** poll human feedback with **`design_space_events_poll`** after the user comments/edits.
+**Auto-polling**: the plugin ships a `UserPromptSubmit` hook that scans `events.jsonl` and injects a `<design-space-activity>` block into each turn's context. When you see that block, fetch the details with **`design_space_feedback_get`** (full bundle) or **`design_space_inbox_get`** (urgent sends only) — you do not need to call `design_space_events_poll` separately for the routine case.
 
 ## MCP tools
 

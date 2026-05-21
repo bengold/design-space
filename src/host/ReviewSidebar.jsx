@@ -6,11 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from '@/components/ui/collapsible';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { cn } from '@/lib/utils';
 
 function statusOf(comment) {
@@ -56,9 +52,7 @@ function CommentRow({ comment, selected, onSelect, onSend, onDelete, dimmed }) {
       }}
       className={cn(
         'group cursor-pointer rounded-lg border p-2.5 text-sm transition-colors',
-        selected
-          ? 'border-primary/40 bg-primary/5'
-          : 'border-border bg-card hover:bg-muted/60',
+        selected ? 'border-primary/40 bg-primary/5' : 'border-border bg-card hover:bg-muted/60',
         dimmed && 'opacity-70',
       )}
     >
@@ -141,9 +135,7 @@ export default function ReviewSidebar({
   const unsentCount = open.filter((c) => !c.sentToAgent).length;
 
   return (
-    <aside
-      className="ds-review-ui flex w-80 flex-shrink-0 flex-col border-l border-border bg-sidebar text-sidebar-foreground"
-    >
+    <aside className="ds-review-ui flex w-80 flex-shrink-0 flex-col border-l border-border bg-sidebar text-sidebar-foreground">
       <div className="px-4 py-3 border-b border-border">
         <div className="flex items-center justify-between">
           <strong className="text-sm">Comments</strong>

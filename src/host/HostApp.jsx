@@ -72,9 +72,7 @@ export default function HostApp() {
             <div className="flex items-center gap-2 text-sm">
               <span className="text-muted-foreground">Zoom</span>
               <Select
-                value={
-                  bridge.zoomPresets.includes(bridge.zoom) ? String(bridge.zoom) : ''
-                }
+                value={bridge.zoomPresets.includes(bridge.zoom) ? String(bridge.zoom) : ''}
                 onValueChange={(v) => {
                   const n = Number(v);
                   if (n) bridge.setFrameZoom(n);
@@ -110,10 +108,7 @@ export default function HostApp() {
                 <MessageSquare />
                 <span>Comments</span>
                 {openCount > 0 && (
-                  <Badge
-                    variant="secondary"
-                    className="ml-1 h-4 px-1.5 text-[10px] font-semibold"
-                  >
+                  <Badge variant="secondary" className="ml-1 h-4 px-1.5 text-[10px] font-semibold">
                     {openCount}
                   </Badge>
                 )}
@@ -138,9 +133,7 @@ export default function HostApp() {
           )}
 
           {bridge.questionsOpen && (
-            <Badge className="bg-[#D97757] text-white hover:bg-[#D97757]/90">
-              Questions
-            </Badge>
+            <Badge className="bg-[#D97757] text-white hover:bg-[#D97757]/90">Questions</Badge>
           )}
 
           {bridge.tweaksAvailable && (

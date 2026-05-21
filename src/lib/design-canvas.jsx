@@ -10,12 +10,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from '@/components/ui/tooltip';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 
 // DesignCanvas.jsx — Figma-ish design canvas wrapper
 // Warm gray grid bg + Sections + Artboards + PostIt notes.
@@ -1182,7 +1177,11 @@ function DCFocusOverlay({ entry, sectionMeta, sectionOrder }) {
             className="absolute top-1/2 size-11 -translate-y-1/2 rounded-full border-none bg-white/10 text-white/90 hover:bg-white/20 hover:text-white"
             style={{ [dir]: 28 }}
           >
-            {dir === 'left' ? <ChevronLeft className="size-[18px]" /> : <ChevronRight className="size-[18px]" />}
+            {dir === 'left' ? (
+              <ChevronLeft className="size-[18px]" />
+            ) : (
+              <ChevronRight className="size-[18px]" />
+            )}
           </Button>
         }
       />
@@ -1194,20 +1193,20 @@ function DCFocusOverlay({ entry, sectionMeta, sectionOrder }) {
   // transform on DesignCanvas's ancestors (including the canvas zoom itself).
   return ReactDOM.createPortal(
     <TooltipProvider delay={300}>
-    <div
-      onClick={() => ctx.setFocus(null)}
-      onWheel={(e) => e.preventDefault()}
-      style={{
-        position: 'fixed',
-        inset: 0,
-        zIndex: 100,
-        background: 'rgba(24,20,16,.6)',
-        backdropFilter: 'blur(14px)',
-        fontFamily: DC.font,
-        color: '#fff',
-      }}
-    >
-      {/* top bar: section dropdown (left) · close (right) */}
+      <div
+        onClick={() => ctx.setFocus(null)}
+        onWheel={(e) => e.preventDefault()}
+        style={{
+          position: 'fixed',
+          inset: 0,
+          zIndex: 100,
+          background: 'rgba(24,20,16,.6)',
+          backdropFilter: 'blur(14px)',
+          fontFamily: DC.font,
+          color: '#fff',
+        }}
+      >
+        {/* top bar: section dropdown (left) · close (right) */}
         <div
           onClick={(e) => e.stopPropagation()}
           style={{
@@ -1287,97 +1286,97 @@ function DCFocusOverlay({ entry, sectionMeta, sectionOrder }) {
           </Tooltip>
         </div>
 
-      {/* card centered, label + index below — only the card itself stops
+        {/* card centered, label + index below — only the card itself stops
           propagation so any backdrop click (including the margins around
           the card) exits focus */}
-      <div
-        style={{
-          position: 'absolute',
-          top: 64,
-          bottom: 56,
-          left: 100,
-          right: 100,
-          display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'center',
-          justifyContent: 'center',
-          gap: 16,
-        }}
-      >
         <div
-          onClick={(e) => e.stopPropagation()}
-          style={{ width: width * scale, height: height * scale, position: 'relative' }}
+          style={{
+            position: 'absolute',
+            top: 64,
+            bottom: 56,
+            left: 100,
+            right: 100,
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: 16,
+          }}
         >
           <div
-            style={{
-              width,
-              height,
-              transform: `scale(${scale})`,
-              transformOrigin: 'top left',
-              background: '#fff',
-              borderRadius: 2,
-              overflow: 'hidden',
-              boxShadow: '0 20px 80px rgba(0,0,0,.4)',
-            }}
+            onClick={(e) => e.stopPropagation()}
+            style={{ width: width * scale, height: height * scale, position: 'relative' }}
           >
-            {children || (
-              <div
-                style={{
-                  height: '100%',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  color: '#bbb',
-                }}
-              >
-                {aid}
-              </div>
-            )}
+            <div
+              style={{
+                width,
+                height,
+                transform: `scale(${scale})`,
+                transformOrigin: 'top left',
+                background: '#fff',
+                borderRadius: 2,
+                overflow: 'hidden',
+                boxShadow: '0 20px 80px rgba(0,0,0,.4)',
+              }}
+            >
+              {children || (
+                <div
+                  style={{
+                    height: '100%',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    color: '#bbb',
+                  }}
+                >
+                  {aid}
+                </div>
+              )}
+            </div>
+          </div>
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{ fontSize: 14, fontWeight: 500, opacity: 0.85, textAlign: 'center' }}
+          >
+            {(sec.labels || {})[aid] ?? artboard.props.label}
+            <span style={{ opacity: 0.5, marginLeft: 10, fontVariantNumeric: 'tabular-nums' }}>
+              {idx + 1} / {peers.length}
+            </span>
           </div>
         </div>
+
+        <Arrow dir="left" label="Previous artboard" onClick={() => go(-1)} />
+        <Arrow dir="right" label="Next artboard" onClick={() => go(1)} />
+
+        {/* dots */}
         <div
           onClick={(e) => e.stopPropagation()}
-          style={{ fontSize: 14, fontWeight: 500, opacity: 0.85, textAlign: 'center' }}
+          style={{
+            position: 'absolute',
+            bottom: 20,
+            left: '50%',
+            transform: 'translateX(-50%)',
+            display: 'flex',
+            gap: 8,
+          }}
         >
-          {(sec.labels || {})[aid] ?? artboard.props.label}
-          <span style={{ opacity: 0.5, marginLeft: 10, fontVariantNumeric: 'tabular-nums' }}>
-            {idx + 1} / {peers.length}
-          </span>
+          {peers.map((p, i) => (
+            <button
+              key={p}
+              onClick={() => ctx.setFocus(`${sectionId}/${p}`)}
+              style={{
+                border: 'none',
+                padding: 0,
+                cursor: 'pointer',
+                width: 6,
+                height: 6,
+                borderRadius: 3,
+                background: i === idx ? '#fff' : 'rgba(255,255,255,.3)',
+              }}
+            />
+          ))}
         </div>
       </div>
-
-      <Arrow dir="left" label="Previous artboard" onClick={() => go(-1)} />
-      <Arrow dir="right" label="Next artboard" onClick={() => go(1)} />
-
-      {/* dots */}
-      <div
-        onClick={(e) => e.stopPropagation()}
-        style={{
-          position: 'absolute',
-          bottom: 20,
-          left: '50%',
-          transform: 'translateX(-50%)',
-          display: 'flex',
-          gap: 8,
-        }}
-      >
-        {peers.map((p, i) => (
-          <button
-            key={p}
-            onClick={() => ctx.setFocus(`${sectionId}/${p}`)}
-            style={{
-              border: 'none',
-              padding: 0,
-              cursor: 'pointer',
-              width: 6,
-              height: 6,
-              borderRadius: 3,
-              background: i === idx ? '#fff' : 'rgba(255,255,255,.3)',
-            }}
-          />
-        ))}
-      </div>
-    </div>
     </TooltipProvider>,
     document.body,
   );

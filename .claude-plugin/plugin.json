@@ -1,7 +1,7 @@
 {
   "name": "design-space",
   "description": "Local Claude Design host — edit designs/<name>/Design.jsx, read human comments/overrides, ask refinement questions, poll review events.",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "homepage": "https://github.com/bengold/design-space",
   "repository": "https://github.com/bengold/design-space",
   "license": "MIT",
@@ -13,5 +13,20 @@
         "DESIGN_SPACE_ROOT": "${CLAUDE_PROJECT_DIR}"
       }
     }
+  },
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node ${CLAUDE_PLUGIN_ROOT}/hooks/poll-comments.mjs",
+            "env": {
+              "DESIGN_SPACE_ROOT": "${CLAUDE_PROJECT_DIR}"
+            }
+          }
+        ]
+      }
+    ]
   }
 }
