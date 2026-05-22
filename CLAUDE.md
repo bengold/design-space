@@ -25,8 +25,11 @@ npx design-space overrides get|set                    # Edit-mode text/style ove
 npx design-space feedback export                      # writes/reads agent-feedback.md
 npx design-space events poll --design <name> --since <iso>   # consume events.jsonl since last poll
 npx design-space mcp install <cursor|cursor-global|claude-desktop>   # write host config
+npx design-space doctor                               # diagnose CLI/MCP/plugin setup
 npm run mcp                                           # run the MCP server directly (stdio)
+npm run build:mcp                                     # rebuild mcp-server/dist/index.mjs (commit the bundle)
 npm test                                              # vitest: core helpers + CLI smoke
+npm run test:watch                                    # vitest in watch mode
 npm run lint                                          # ESLint flat config
 npm run format / npm run format:check                 # Prettier
 npm run build                                         # vite build (host + preview entries)
