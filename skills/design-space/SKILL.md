@@ -8,6 +8,10 @@ description: >-
 
 # Design Space (agent workflow)
 
+## Scope
+
+Edit `designs/<name>/` (Design.jsx, tweaks, pages). **Do not edit the host runtime** (`src/host/`, `src/lib/`, `src/preview/`, `vite.config.js`, `lib/design-space-core.mjs`, `bin/`, `mcp-server/`) unless the human explicitly says they're working on the host. See AGENTS.md → "Scope: which files to touch".
+
 ## Architecture
 
 | Layer       | Role                                                                                 |

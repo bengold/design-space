@@ -5,6 +5,16 @@ Design Space is a **local Claude Design host** for coding agents (Claude Code, C
 - **Agents:** this file (`AGENTS.md`) — distilled for local Design Space
 - **Humans / reference:** [docs/claude-design-prompt.extracted.md](docs/claude-design-prompt.extracted.md) — text extract of the hosted Claude Design system prompt
 
+## Scope: which files to touch
+
+Most Design Space sessions are **design-authoring** — adding or editing designs under `designs/<name>/`. By default, scope your edits accordingly:
+
+- **Edit freely:** files under `designs/<name>/` — `Design.jsx`, `tweaks.defaults.json`, `meta.json`, anything under `pages/`.
+- **Read, don't edit:** the host runtime — `src/host/`, `src/lib/`, `src/preview/`, `vite.config.js`, `lib/design-space-core.mjs`, `bin/`, `mcp-server/`. These power the canvas, tweaks panel, comment/edit modes, and CLI for every design. Touching them is rarely what a design task needs and risks breaking the whole host.
+- **Surface the exception, don't sneak it in:** if a host change really is the right fix (e.g. a canvas bug blocking the work), call it out and confirm before editing.
+
+**Override:** the human can lift this scope for a session — e.g. _"we're working on the host UI today"_, _"edit src/host"_, or pointing you at a specific file under `src/`. Once lifted, treat host files like any other code (read first, follow existing patterns, run `npm test` and `npm run lint`).
+
 ## Parity: what agents can do
 
 | Human (UI)                      | Agent equivalent                                                                                                                            |
@@ -241,7 +251,7 @@ The tweaks runtime already handles `__edit_mode_*` postMessage to the host; you 
 
 ## Design rules for agents
 
-1. **Prefer editing `designs/<name>/Design.jsx`** over patching `src/lib/*` unless fixing the host.
+1. **Stay in `designs/<name>/`** by default — do not patch the host runtime (`src/host/`, `src/lib/`, `src/preview/`, etc.) unless the human has explicitly lifted scope. See [Scope: which files to touch](#scope-which-files-to-touch).
 2. **Keep artboard `id`s stable** across iterations so canvas state does not reset.
 3. **Match tweak keys** across `tweaks.defaults.json`, `useDesignTweaks`, and `<Tweak*>` components.
 4. **No extra dependencies** in artboards unless the user asks — canvas is self-contained React (Vite bundles modules; do not add unpinned CDN React/Babel unless the user requires it).
