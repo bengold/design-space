@@ -367,9 +367,7 @@ function QuestionField({ q, value, onChange, designName, labelId }) {
     case 'svg-options':
       return <SvgOptionsControl q={q} value={value} onChange={onChange} />;
     case 'slider':
-      return (
-        <SliderControl q={q} value={value} onChange={onChange} ariaLabelledBy={labelId} />
-      );
+      return <SliderControl q={q} value={value} onChange={onChange} ariaLabelledBy={labelId} />;
     case 'file':
       return <FileControl q={q} value={value} onChange={onChange} designName={designName} />;
     case 'freeform':

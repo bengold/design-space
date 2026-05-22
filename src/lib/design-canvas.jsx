@@ -1467,8 +1467,7 @@ function DCFocusOverlay({ entry, sectionMeta, sectionOrder }) {
       const t = e.target;
       if (
         t &&
-        (t.matches?.('input, textarea, select, [contenteditable="true"]') ||
-          t.isContentEditable)
+        (t.matches?.('input, textarea, select, [contenteditable="true"]') || t.isContentEditable)
       ) {
         return;
       }

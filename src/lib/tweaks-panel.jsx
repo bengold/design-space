@@ -93,9 +93,8 @@ export function useDesignTweaks(designName, config) {
     let cancelled = false;
     (async () => {
       try {
-        const { loadTweakValues, loadTweaksFromLocalStorage } = await import(
-          '../preview/tweakStorage.js'
-        );
+        const { loadTweakValues, loadTweaksFromLocalStorage } =
+          await import('../preview/tweakStorage.js');
         const fromDisk = await loadTweakValues(designName, extractDefaults(config));
         const withLocal = loadTweaksFromLocalStorage(designName, fromDisk);
         if (!cancelled) {
@@ -119,7 +118,8 @@ export function useDesignTweaks(designName, config) {
         if (Object.is(prev[key], value)) return prev;
         const edits = { [key]: value };
         if (typeof window !== 'undefined') {
-          if (window.parent) window.parent.postMessage({ type: '__edit_mode_set_keys', edits }, '*');
+          if (window.parent)
+            window.parent.postMessage({ type: '__edit_mode_set_keys', edits }, '*');
           window.dispatchEvent(new CustomEvent('tweakchange', { detail: edits }));
         }
         import('../preview/tweakStorage.js').then(({ persistTweakEdits }) =>
@@ -354,7 +354,15 @@ function renderControl(key, schema, value, setKey, label) {
         />
       );
     }
-    return <NumberRow key={key} label={lbl} value={value ?? schema[0]} step={step ?? 1} onChange={onChange} />;
+    return (
+      <NumberRow
+        key={key}
+        label={lbl}
+        value={value ?? schema[0]}
+        step={step ?? 1}
+        onChange={onChange}
+      />
+    );
   }
   if (typeof schema === 'number') {
     return <NumberRow key={key} label={lbl} value={value ?? schema} onChange={onChange} />;
@@ -363,7 +371,8 @@ function renderControl(key, schema, value, setKey, label) {
     return <ToggleRow key={key} label={lbl} value={value ?? schema} onChange={onChange} />;
   }
   if (typeof schema === 'string') {
-    if (isHex(schema)) return <ColorRow key={key} label={lbl} value={value ?? schema} onChange={onChange} />;
+    if (isHex(schema))
+      return <ColorRow key={key} label={lbl} value={value ?? schema} onChange={onChange} />;
     return <TextRow key={key} label={lbl} value={value ?? schema} onChange={onChange} />;
   }
   if (isTagged(schema)) {
@@ -433,9 +442,9 @@ function Folder({ title, children }) {
   );
 }
 
-// ─── Floating panel root ─────────────────────────────────────────────────────
+// ─── Docked panel root ───────────────────────────────────────────────────────
 
-export function TweaksPanelRoot({ position = 'bottom-right' }) {
+export function TweaksPanelRoot({ position: _position = 'bottom-right' }) {
   const registration = usePublication();
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(false);
@@ -503,7 +512,10 @@ export function TweaksPanelRoot({ position = 'bottom-right' }) {
       if (e.key === 'Escape' && !e.defaultPrevented) {
         const target = e.target;
         // Don't swallow Escape when focus is inside a nested popover (color picker).
-        if (target instanceof Element && target.closest('[data-radix-popper-content-wrapper], [data-floating-ui-portal]')) {
+        if (
+          target instanceof Element &&
+          target.closest('[data-radix-popper-content-wrapper], [data-floating-ui-portal]')
+        ) {
           return;
         }
         e.preventDefault();
@@ -516,47 +528,44 @@ export function TweaksPanelRoot({ position = 'bottom-right' }) {
 
   if (!active || !open || !registration) return null;
 
-  const corner = {
-    'bottom-right': 'bottom-4 right-4',
-    'bottom-left': 'bottom-4 left-4',
-    'top-right': 'top-4 right-4',
-    'top-left': 'top-4 left-4',
-  }[position];
-
   const { config, values, setKey } = registration;
+  const isEmpty = !config || Object.keys(config).length === 0;
 
   return (
-    <section
-      role="region"
+    <aside
+      role="complementary"
       aria-labelledby={titleId}
       className={cn(
-        'fixed z-[9990] w-[260px] rounded-lg border border-border bg-popover/95 text-popover-foreground shadow-lg backdrop-blur-sm',
-        corner,
+        'fixed top-0 right-0 bottom-0 z-[9990] flex w-[340px] flex-col border-l border-border bg-popover text-popover-foreground sm:w-[360px]',
       )}
     >
-      <div className="flex items-center justify-between border-b border-border/60 px-3 py-2">
-        <h2 id={titleId} className="text-xs font-semibold text-foreground">
+      <div className="flex items-center justify-between border-b border-border px-4 py-3">
+        <h2 id={titleId} className="text-sm font-semibold text-foreground">
           Tweaks
         </h2>
         <button
           type="button"
           aria-label="Close tweaks panel"
           onClick={close}
-          className="grid size-5 place-items-center rounded-sm text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
+          className="grid size-8 place-items-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
-          <X className="size-3" />
+          <X className="size-4" />
         </button>
       </div>
-      {/* Bottom padding leaves breathing room below the last control so it
-          doesn't sit flush against the rounded corner. */}
-      <div className="max-h-[70vh] overflow-auto px-3 pt-3 pb-4">
-        <div className="flex flex-col gap-1.5">
-          {Object.entries(config).map(([key, schema]) =>
-            renderControl(key, schema, values[key], setKey, key),
-          )}
-        </div>
+      <div className="flex-1 overflow-auto px-4 py-4">
+        {isEmpty ? (
+          <div className="grid h-full place-items-center text-center text-sm text-muted-foreground">
+            No tweaks defined for this design.
+          </div>
+        ) : (
+          <div className="flex flex-col gap-1.5">
+            {Object.entries(config).map(([key, schema]) =>
+              renderControl(key, schema, values[key], setKey, key),
+            )}
+          </div>
+        )}
       </div>
-    </section>
+    </aside>
   );
 }
 

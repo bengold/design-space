@@ -103,7 +103,8 @@ export const POPULAR_GOOGLE_FONTS = [
 // Choose a sensible CSS generic fallback for a Google family.
 function genericFallbackFor(family) {
   const monoHints = /(Mono|Code|Plex Mono|JetBrains|Fira Code|Space Mono|Courier)/i;
-  const serifHints = /(Serif|Garamond|Baskerville|Lora|Spectral|Playfair|Merriweather|Crimson|EB Garamond|Cormorant)/i;
+  const serifHints =
+    /(Serif|Garamond|Baskerville|Lora|Spectral|Playfair|Merriweather|Crimson|EB Garamond|Cormorant)/i;
   if (monoHints.test(family)) return 'monospace';
   if (serifHints.test(family)) return 'serif';
   return 'sans-serif';
