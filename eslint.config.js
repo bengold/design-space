@@ -10,9 +10,17 @@ export default [
       'dist/**',
       'mcp-server/dist/**',
       'public/**',
+      // Local Claude Code state — worktrees, hooks, etc. — never linted.
+      '.claude/**',
       // Stray Vite build chunks at the repo root, if any leaked out of dist/.
       'QuestionsViewer-*.js',
       '*-[A-Za-z0-9]{8}.js',
+      'projectpage.js',
+      'startingpointpicker.js',
+      // Reference exports kept locally but not part of the source tree.
+      'App onboarding/**',
+      'ios-frame.jsx',
+      'script.js',
       'designs/*/agent-feedback.md',
       'designs/*/agent-inbox.md',
     ],

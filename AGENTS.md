@@ -201,8 +201,8 @@ Hosted Claude Design persists tweaks via `/*EDITMODE-BEGIN*/` … `/*EDITMODE-EN
 In `Design.jsx`:
 
 ```jsx
-import { useDesignTweaks } from '../../src/preview/useDesignTweaks.js';
 import {
+  useDesignTweaks,
   TweaksPanel,
   TweakSection,
   TweakSlider,
@@ -315,7 +315,9 @@ Question kinds (Claude Design–aligned): `text-options` (pill chips + “Other�
 - **User delete:** Feedback sidebar → **Delete** (removes from `comments.json`).
 - **Agent dismiss:** `design-space comments resolve [id...]` or MCP `design_space_comments_resolve` — sets `status: "resolved"` (hidden from open feedback + pins).
 - **Agent read inbox:** `design-space inbox get` or MCP `design_space_inbox_get` for direct sends.
-- **Overrides:** Human uses **Edit** to change text, font size, color, weight. Persisted as `overrides.json` → `{ "byRef": { "ds-3": { "styles": {...}, "textContent": "..." } } }`.
+- **Overrides:** Human uses **Edit** to change text, font size, color, weight, position mode, etc. Persisted as `overrides.json` → `{ "byRef": { "ds-3": { "styles": {...}, "textContent": "..." } } }`. The edit panel surfaces in-document colors/fonts as quick swatches.
+- **Inline text:** In Edit mode, **double-click** any leaf element (or press F2 with one selected) to edit its text in-place. Enter commits; Esc reverts. Commits flow into `overrides.json` as `textContent`.
+- **DOM snapshot:** The host writes `designs/<name>/dom-snapshot.txt` on Edit mode entry and after every edit — pretty-printed rendered DOM with React component names stamped. Read via MCP `design_space_dom_snapshot` to diff source JSX against what the user sees.
 - **Read for coding:** `npx design-space feedback export`, `comments get`, `overrides get`.
 
 Optional: add stable `data-ds-anchor="hero-cta"` in `Design.jsx` for clearer agent references (runtime also assigns `data-ds-ref` on pick).

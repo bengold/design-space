@@ -11,7 +11,7 @@
   "license": "MIT",
   "keywords": ["design", "ui", "canvas", "claude-design", "prototyping", "mcp", "feedback"],
   "skills": "./skills/",
-  "mcpServers": "./.mcp.json",
+  "mcpServers": "./mcp.json",
   "interface": {
     "displayName": "Design Space",
     "shortDescription": "Local design canvas, tweaks, comments, and Q&A for coding agents.",

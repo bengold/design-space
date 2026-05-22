@@ -10,7 +10,18 @@ designs/*/comments.json
 designs/*/overrides.json
 designs/*/events.jsonl
 designs/*/agent-inbox.json
+designs/*/dom-snapshot.txt
+# Local env files — never committed (contains API keys).
+.env
+.env.local
+.env.*.local
 # Per-user MCP config (use `design-space mcp install cursor` to generate).
 .cursor/mcp.json
 # Stray Vite build chunks at the repo root.
 /QuestionsViewer-*.js
+# Reference exports and scratch files dropped at the repo root.
+/App onboarding/
+/ios-frame.jsx
+/projectpage.js
+/script.js
+/startingpointpicker.js

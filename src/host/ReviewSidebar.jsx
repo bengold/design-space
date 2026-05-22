@@ -46,12 +46,18 @@ function CommentRow({ comment, selected, onSelect, onSend, onDelete, dimmed }) {
     <div
       role="button"
       tabIndex={0}
+      aria-pressed={selected || undefined}
+      aria-label={`${status} comment: ${(comment.text || '').slice(0, 80) || '(empty)'}`}
       onClick={() => onSelect?.(comment.id)}
       onKeyDown={(e) => {
-        if (e.key === 'Enter') onSelect?.(comment.id);
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          onSelect?.(comment.id);
+        }
       }}
       className={cn(
         'group cursor-pointer rounded-lg border p-2.5 text-sm transition-colors',
+        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1',
         selected ? 'border-primary/40 bg-primary/5' : 'border-border bg-card hover:bg-muted/60',
         dimmed && 'opacity-70',
       )}
@@ -59,13 +65,14 @@ function CommentRow({ comment, selected, onSelect, onSend, onDelete, dimmed }) {
       <div className="mb-1.5 flex items-center justify-between gap-2">
         <StatusBadge status={status} />
         <div
-          className="flex items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100"
+          className="flex items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100"
           onClick={(e) => e.stopPropagation()}
         >
           {canSend && (
             <Button
               variant="ghost"
               size="icon-xs"
+              aria-label="Send this comment to the agent"
               title="Send this comment to the agent"
               onClick={() => onSend?.(comment.id)}
             >
@@ -76,6 +83,7 @@ function CommentRow({ comment, selected, onSelect, onSend, onDelete, dimmed }) {
             <Button
               variant="ghost"
               size="icon-xs"
+              aria-label="Delete this comment"
               title="Delete this comment"
               onClick={() => onDelete?.(comment.id)}
             >
@@ -135,19 +143,22 @@ export default function ReviewSidebar({
   const unsentCount = open.filter((c) => !c.sentToAgent).length;
 
   return (
-    <aside className="ds-review-ui flex h-full w-80 flex-shrink-0 flex-col border-l border-border bg-sidebar text-sidebar-foreground shadow-xl">
+    <aside
+      aria-label="Comments"
+      className="ds-review-ui flex h-full w-80 flex-shrink-0 flex-col border-l border-border bg-sidebar text-sidebar-foreground shadow-xl"
+    >
       <div className="px-4 py-3 border-b border-border">
         <div className="flex items-center justify-between">
-          <strong className="text-sm">Comments</strong>
+          <h2 className="text-sm font-semibold">Comments</h2>
           {open.length > 0 && (
-            <Badge variant="secondary" className="text-[10px]">
+            <Badge variant="secondary" className="text-[10px]" aria-label={`${open.length} open comments`}>
               {open.length} open
             </Badge>
           )}
         </div>
-        <div className="mt-1 text-[11px] text-muted-foreground">
-          Click to open in preview · hover to send or delete
-        </div>
+        <p className="mt-1 text-xs text-muted-foreground">
+          Click to open in preview · hover or focus to send or delete
+        </p>
       </div>
 
       <ScrollArea className="flex-1">

@@ -32,7 +32,6 @@
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "colord": "^2.9.3",
-    "dialkit": "^1.2.0",
     "lucide-react": "^1.16.0",
     "motion": "^12.40.0",
     "react": "^19.1.0",

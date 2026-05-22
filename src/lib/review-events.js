@@ -1,5 +1,3 @@
-import { writeDesignFile, fetchDesignJson } from '../preview/persistDesignFile.js';
-
 export async function appendReviewEvent(designName, type, payload = {}) {
   const line = JSON.stringify({
     at: new Date().toISOString(),

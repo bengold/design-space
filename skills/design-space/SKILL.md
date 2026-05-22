@@ -35,10 +35,26 @@ Edit `designs/<name>/` (Design.jsx, tweaks, pages). **Do not edit the host runti
 - `design_space_questions_ask` / `design_space_questions_wait`
 - `design_space_comments_resolve` — dismiss when done (`commentIds` optional = all open)
 - `design_space_feedback_export` — regenerate `agent-feedback.md`
+- `design_space_dom_snapshot` — pretty-printed rendered DOM (React component names stamped). The host writes this on Edit mode entry and after every override edit, so it reflects what the user currently sees. Use this to diff source against rendered structure when the comment payload alone is ambiguous.
 
 ## Comment payload
 
-Each comment context now includes a `source` field with the JSX file + line that owns the targeted element (via React fiber `_debugSource`, e.g. `designs/demo/Design.jsx:42`). When the agent receives a `<mentioned-element>` block, use the `source:` line to jump directly to the relevant JSX — don't grep first.
+Each `<mentioned-element>` block is multi-line, mid-truncated at ~100 chars per line:
+
+```
+<mentioned-element>
+artboard: main/dashboard (Dashboard)
+source:   designs/demo/Design.jsx:42
+react:    Design › DashboardPage › Card › Button
+dom:      div#root › main.dashboard › ... › button.primary[3/4]
+text:     "Send" · aria-label: "Send message"
+children: svg, text
+id:       dashboard:0.2.1.3
+comment:  …
+</mentioned-element>
+```
+
+Use `source:` (file:line) to jump straight to JSX — don't grep first. `react:` chains the named component path; `dom:` is the full DOM hop chain with indices for non-unique siblings.
 
 ## Human → agent loop
 

@@ -35,7 +35,7 @@ npm run format / npm run format:check                 # Prettier
 npm run build                                         # vite build (host + preview entries)
 ```
 
-`design-space validate` is the only static check for tweak/Design.jsx parity; `npm test` covers the CLI/core round-trips.
+`design-space validate` only checks that `Design.jsx` and `tweaks.defaults.json` exist — it does NOT verify tweak key parity against the page configs. Key drift surfaces at runtime as silently undefined `t.*` reads; `npm test` covers the CLI/core round-trips.
 
 ## Architecture
 
@@ -50,7 +50,7 @@ Two Vite entrypoints; the host loads the preview as an iframe:
 
 ## Per-design files (under `designs/<name>/`)
 
-- `Design.jsx` — agent-owned React entry; wraps screens in `<DesignCanvas>` → `<DCSection>` → `<DCArtboard id label width height>`. Imports from `../../src/lib/design-canvas.jsx` and `../../src/lib/tweaks-panel.jsx`; uses `useDesignTweaks` from `../../src/preview/useDesignTweaks.js`.
+- `Design.jsx` — agent-owned React entry; wraps screens in `<DesignCanvas>` → `<DCSection>` → `<DCArtboard id label width height>`. Imports `DesignCanvas` / `DCSection` / `DCArtboard` from `../../src/lib/design-canvas.jsx`, and `useDesignTweaks` + `<Tweak*>` controls from `../../src/lib/tweaks-panel.jsx`.
 - `tweaks.defaults.json` — agent-owned defaults. Keys must line up with `t.*` reads in `Design.jsx` and with `<Tweak*>` controls; `validate` checks this.
 - `tweaks.json`, `comments.json`, `overrides.json`, `events.jsonl`, `agent-inbox.json` — gitignored runtime state written by the host. Read via CLI/MCP, not by parsing files directly when you can avoid it.
 - `questions.json` — refinement Q&A; status flips to `"answered"` on submit.

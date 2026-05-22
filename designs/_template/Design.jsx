@@ -1,14 +1,14 @@
 import React from 'react';
 import { DesignCanvas, DCSection, DCArtboard } from '../../src/lib/design-canvas.jsx';
-import { useDesignTweaksDialKit } from '../../src/preview/useDesignTweaksDialKit.js';
+import { useDesignTweaks } from '../../src/lib/tweaks-panel.jsx';
 
-// DialKit config:
-//   • [n, min, max] → slider with range
+// Tweak config:
+//   • [n, min, max, step?] → slider with range (or numeric row if min/max omitted)
 //   • { type: 'color', default } → color picker
-//   • { type: 'select', options, default } → select
+//   • { type: 'select', options, default } → select dropdown
 //   • boolean → toggle
-// Top-level object values become folder groups in the panel.
-// See src/preview/useDesignTweaksDialKit.js for the full schema.
+//   • plain object → nested folder group
+// See src/lib/tweaks-panel.jsx for the full schema.
 const TWEAK_CONFIG = {
   primaryColor: {
     type: 'select',
@@ -23,7 +23,7 @@ const TWEAK_CONFIG = {
 };
 
 export default function Design() {
-  const t = useDesignTweaksDialKit('__NAME__', TWEAK_CONFIG);
+  const t = useDesignTweaks('__NAME__', TWEAK_CONFIG);
 
   return (
     <DesignCanvas>

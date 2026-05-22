@@ -3,6 +3,7 @@ import React, {
   useCallback,
   useContext,
   useEffect,
+  useId,
   useMemo,
   useRef,
   useState,
@@ -133,7 +134,7 @@ function OverridesInjector({ byRef, canvas }) {
 function ContextList({ contexts }) {
   if (!contexts.length) return null;
   return (
-    <ul className="m-0 list-disc pl-4 text-[11px] text-muted-foreground">
+    <ul className="m-0 list-disc pl-4 text-xs text-foreground/80">
       {contexts.slice(0, 5).map((ctx) => (
         <li key={ctx.ref} className="font-mono">
           {ctx.dom}
@@ -202,6 +203,8 @@ function CommentPopover({
   const initialText = mode === 'detail' ? comment?.text || '' : '';
   const [text, setText] = useState(initialText);
   const popupRef = useRef(null);
+  const titleId = useId();
+  const subtitleId = useId();
 
   useEffect(() => {
     setText(initialText);
@@ -225,7 +228,30 @@ function CommentPopover({
     refs.setReference(reference);
   }, [reference, refs]);
 
-  // Dismiss on outside click + Escape.
+  // Capture the element that opened the popover so focus can be restored
+  // when it closes — basic but important AT affordance.
+  const restoreFocusRef = useRef(null);
+  useEffect(() => {
+    if (open) {
+      restoreFocusRef.current = document.activeElement;
+      return undefined;
+    }
+    const el = restoreFocusRef.current;
+    if (el && typeof el.focus === 'function') {
+      // Defer so the popover unmount finishes before refocusing.
+      const id = window.setTimeout(() => {
+        try {
+          el.focus();
+        } catch {
+          /* element gone */
+        }
+      }, 0);
+      return () => window.clearTimeout(id);
+    }
+    return undefined;
+  }, [open]);
+
+  // Dismiss on outside click + Escape; light focus trap inside the popover.
   useEffect(() => {
     if (!open) return undefined;
     const onDown = (e) => {
@@ -237,10 +263,35 @@ function CommentPopover({
       if (e.target.closest('.ds-review-ui')) return;
       onOpenChange?.(false);
     };
+    const focusableSelector =
+      'a[href],button:not([disabled]),textarea:not([disabled]),input:not([disabled]),select:not([disabled]),[tabindex]:not([tabindex="-1"])';
     const onKey = (e) => {
       if (e.key === 'Escape') {
         e.stopPropagation();
         onOpenChange?.(false);
+        return;
+      }
+      if (e.key !== 'Tab') return;
+      const root = popupRef.current;
+      if (!root) return;
+      const focusable = Array.from(root.querySelectorAll(focusableSelector)).filter(
+        (n) => !n.hasAttribute('disabled') && n.offsetParent !== null,
+      );
+      if (focusable.length === 0) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      const active = document.activeElement;
+      if (!root.contains(active)) {
+        e.preventDefault();
+        first.focus();
+        return;
+      }
+      if (e.shiftKey && active === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && active === last) {
+        e.preventDefault();
+        first.focus();
       }
     };
     document.addEventListener('mousedown', onDown, true);
@@ -266,18 +317,26 @@ function CommentPopover({
         refs.setFloating(node);
       }}
       role="dialog"
+      aria-labelledby={titleId}
+      aria-describedby={mode === 'detail' ? subtitleId : undefined}
       className="ds-review-ui z-[100000] flex w-[320px] flex-col gap-0 rounded-lg border border-border bg-popover text-popover-foreground shadow-lg ring-1 ring-foreground/10 outline-hidden"
-      style={floatingStyles}
+      style={{ ...floatingStyles, maxWidth: 'min(320px, calc(100vw - 32px))' }}
     >
       <div className="flex items-start justify-between gap-2 border-b border-border px-3 py-2">
         <div className="flex flex-col gap-0.5">
-          <div className="text-sm font-medium leading-tight">{title}</div>
-          {mode === 'detail' && <p className="text-[11px] text-muted-foreground">{subtitle}</p>}
+          <div id={titleId} className="text-sm font-medium leading-tight">
+            {title}
+          </div>
+          {mode === 'detail' && (
+            <p id={subtitleId} className="text-[11px] text-muted-foreground">
+              {subtitle}
+            </p>
+          )}
         </div>
         <button
           type="button"
-          aria-label="Close"
-          className="-mr-1 -mt-0.5 inline-flex size-6 items-center justify-center rounded-sm text-muted-foreground hover:bg-muted hover:text-foreground"
+          aria-label="Close comment"
+          className="-mr-1 -mt-0.5 inline-flex size-7 items-center justify-center rounded-sm text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
           onClick={() => onOpenChange?.(false)}
         >
           <X className="size-3.5" />
@@ -344,7 +403,7 @@ function CommentPopover({
         {mode === 'compose' && (
           <button
             type="button"
-            className="self-center text-xs text-muted-foreground underline-offset-2 hover:underline disabled:opacity-50"
+            className="self-center rounded text-xs text-foreground underline underline-offset-2 hover:no-underline disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
             disabled={busy}
             onClick={() => onOpenChange?.(false)}
           >
@@ -368,7 +427,10 @@ function CommentPopover({
   );
 }
 
-function CommentPin({ refId, index, selected, onSelect }) {
+const CommentPin = React.forwardRef(function CommentPin(
+  { refId, index, selected, comment, onSelect, onKeyDown, tabIndex },
+  ref,
+) {
   const [pos, setPos] = useState(null);
   useEffect(() => {
     const el = document.querySelector(`[data-ds-ref="${refId}"]`);
@@ -385,43 +447,98 @@ function CommentPin({ refId, index, selected, onSelect }) {
   }, [refId]);
 
   if (!pos) return null;
+  const isSent = !!comment?.sentToAgent;
+  // Background carries identity; border carries non-color state (dashed = sent,
+  // solid = open) so it isn't 1.4.1 color-only.
   return (
     <button
+      ref={ref}
       type="button"
+      role="button"
+      aria-pressed={selected || undefined}
+      aria-label={`Open comment ${index + 1}${isSent ? ', sent to agent' : ''}: ${
+        (comment?.text || '').slice(0, 60) || '(empty)'
+      }`}
+      tabIndex={tabIndex ?? 0}
       className={cn(
-        'ds-review-ui fixed z-40 flex size-6 -translate-x-1/2 -translate-y-1/2 cursor-pointer items-center justify-center rounded-full border-2 border-background bg-primary text-[11px] font-bold text-primary-foreground shadow-md transition-transform',
-        selected && 'ring-2 ring-primary ring-offset-2 ring-offset-background scale-110',
+        'ds-review-ui fixed z-40 grid size-7 -translate-x-1/2 -translate-y-1/2 cursor-pointer place-items-center rounded-full border-2 bg-primary text-[11px] font-bold text-primary-foreground shadow-md transition-transform',
+        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background',
+        isSent ? 'border-dashed border-primary-foreground/70' : 'border-background',
+        selected &&
+          'ring-2 ring-primary ring-offset-2 ring-offset-background scale-110',
       )}
       style={{ left: pos.left, top: pos.top }}
       onClick={onSelect}
+      onKeyDown={onKeyDown}
     >
-      {index + 1}
+      <span aria-hidden>{index + 1}</span>
     </button>
   );
-}
+});
 
 function CommentPinLayer({ comments, highlighted, onSelect }) {
-  return filterOpenComments(comments).map((c, i) => {
+  const open = useMemo(() => filterOpenComments(comments), [comments]);
+  // Roving tabindex: one focusable pin at a time, arrow keys move focus.
+  const [focusIdx, setFocusIdx] = useState(0);
+  const pinRefs = useRef([]);
+  useEffect(() => {
+    if (focusIdx >= open.length) setFocusIdx(Math.max(0, open.length - 1));
+  }, [open.length, focusIdx]);
+
+  const handleKey = (i) => (e) => {
+    if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
+      e.preventDefault();
+      const next = (i + 1) % open.length;
+      setFocusIdx(next);
+      pinRefs.current[next]?.focus();
+    } else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      const next = (i - 1 + open.length) % open.length;
+      setFocusIdx(next);
+      pinRefs.current[next]?.focus();
+    } else if (e.key === 'Home') {
+      e.preventDefault();
+      setFocusIdx(0);
+      pinRefs.current[0]?.focus();
+    } else if (e.key === 'End') {
+      e.preventDefault();
+      const last = open.length - 1;
+      setFocusIdx(last);
+      pinRefs.current[last]?.focus();
+    }
+  };
+
+  return open.map((c, i) => {
     const ctx = c.contexts?.[0] || c.context;
     const refId = ctx?.ref || c.anchor;
     if (!refId) return null;
     return (
       <CommentPin
         key={c.id}
+        ref={(node) => {
+          pinRefs.current[i] = node;
+        }}
         refId={refId}
         index={i}
+        comment={c}
         selected={highlighted === c.id}
-        onSelect={() => onSelect(c)}
+        tabIndex={i === focusIdx ? 0 : -1}
+        onSelect={() => {
+          setFocusIdx(i);
+          onSelect(c);
+        }}
+        onKeyDown={handleKey(i)}
       />
     );
   });
 }
 
 function ModeHint({ commentMode, hasSelection }) {
-  // Tethered to the bottom-right of the canvas viewport (not centered + floating)
-  // so the eye associates it with the active mode rather than a disembodied
-  // chip. Reveal progressively: 1–2 primary hints inline based on whether the
-  // user has selected an element; expand to the full chord list on hover.
+  // Tethered to the bottom-left of the canvas viewport so the hint associates
+  // with the active mode. Reveal progressively: 1–2 primary hints inline
+  // based on whether the user has selected an element; expand to the full
+  // chord list on hover. A verbose description is exposed to screen readers
+  // via sr-only.
   const [expanded, setExpanded] = useState(false);
 
   let primary;
@@ -450,8 +567,13 @@ function ModeHint({ commentMode, hasSelection }) {
         ['live preview', 'as you type'],
       ];
 
+  const verbose = commentMode
+    ? 'Arrow up selects the parent element. Arrow down selects the child. Left and right arrows select siblings. Shift+click for multi-select. Drag to make a selection box. Press Enter to comment on the current selection.'
+    : 'Click an element to inspect. Arrow keys navigate between elements. Edits show a live preview. Press Apply to save.';
+
   return (
     <div
+      role="status"
       className="ds-review-ui fixed bottom-4 left-4 z-40"
       onMouseEnter={() => setExpanded(true)}
       onMouseLeave={() => setExpanded(false)}
@@ -496,6 +618,7 @@ function ModeHint({ commentMode, hasSelection }) {
           <span className="text-muted-foreground/60">hover for more</span>
         </div>
       </div>
+      <span className="sr-only">{verbose}</span>
     </div>
   );
 }
@@ -506,14 +629,6 @@ export function DesignReviewShell({ designName, children }) {
   const [comments, setComments] = useState([]);
   const [overrides, setOverrides] = useState({});
   const [canvasStyles, setCanvasStyles] = useState({});
-  // Refs mirror the latest state so applyOverride/applyCanvasStyle can read
-  // current values without taking them as deps — otherwise every successful
-  // write re-creates the callbacks, which cascades into the edit panel as a
-  // changed `onApply` prop and triggers a write loop.
-  const overridesRef = useRef(overrides);
-  overridesRef.current = overrides;
-  const canvasStylesRef = useRef(canvasStyles);
-  canvasStylesRef.current = canvasStyles;
   // Undo stack — each entry is a full snapshot of { byRef, canvas } from BEFORE
   // an applyOverride/applyCanvas call. Cmd+Z pops the latest and restores it.
   const undoStackRef = useRef([]);
@@ -656,6 +771,15 @@ export function DesignReviewShell({ designName, children }) {
     [designName],
   );
 
+  const [announcement, setAnnouncement] = useState('');
+  const announce = useCallback((msg) => {
+    setAnnouncement('');
+    // Two-frame nudge so AT picks up the change even when the string repeats.
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => setAnnouncement(msg));
+    });
+  }, []);
+
   const addComment = useCallback(
     async (contexts, text, sendToAgent = false) => {
       const list = Array.isArray(contexts) ? contexts : [contexts];
@@ -682,8 +806,9 @@ export function DesignReviewShell({ designName, children }) {
         { type: '__comment_added', comment: entry, sentToAgent: sendToAgent },
         '*',
       );
+      announce(sendToAgent ? 'Comment added and sent to agent.' : 'Comment added.');
     },
-    [comments, designName, questions, notifyEvent],
+    [comments, designName, questions, notifyEvent, announce],
   );
 
   const syncComments = useCallback(
@@ -705,11 +830,12 @@ export function DesignReviewShell({ designName, children }) {
           '*',
         );
         closeCommentPanel();
+        announce('Comment deleted.');
       } finally {
         setCommentBusy(false);
       }
     },
-    [comments, designName, questions, syncComments, closeCommentPanel],
+    [comments, designName, questions, syncComments, closeCommentPanel, announce],
   );
 
   const submitDetail = useCallback(
@@ -764,11 +890,12 @@ export function DesignReviewShell({ designName, children }) {
           { type: '__review_event', designName, eventType: 'comment.sent', commentId },
           '*',
         );
+        announce('Comment sent to agent.');
       } finally {
         setCommentBusy(false);
       }
     },
-    [comments, designName, questions, syncComments],
+    [comments, designName, questions, syncComments, announce],
   );
 
   // Keep refs current so the global message handler always invokes the
@@ -799,40 +926,33 @@ export function DesignReviewShell({ designName, children }) {
 
   const applyOverride = useCallback(
     async (ref, patch) => {
-      const cur = overridesRef.current;
-      const curCanvas = canvasStylesRef.current;
       // Push current state before mutating, so Cmd+Z can revert this edit.
-      undoStackRef.current.push({ byRef: cur, canvas: curCanvas });
-      const next = { ...cur, [ref]: { ...cur[ref], ...patch } };
+      undoStackRef.current.push({ byRef: overrides, canvas: canvasStyles });
+      const next = { ...overrides, [ref]: { ...overrides[ref], ...patch } };
       setOverrides(next);
-      await persistOverrides(designName, next, curCanvas);
+      await persistOverrides(designName, next, canvasStyles);
       await notifyEvent('override.updated', { ref, keys: Object.keys(patch.styles || {}) });
       window.parent.postMessage({ type: '__overrides_updated', designName }, '*');
       scheduleDomSnapshot(designName);
     },
-    [designName, notifyEvent],
+    [designName, overrides, canvasStyles, notifyEvent],
   );
 
   const applyCanvasStyle = useCallback(
-    async (nextStyles) => {
-      const cur = overridesRef.current;
-      const curCanvas = canvasStylesRef.current;
-      undoStackRef.current.push({ byRef: cur, canvas: curCanvas });
-      // The caller (CanvasPanelBody) owns the full draft; treat it as a
-      // replacement, not a merge. Otherwise clearing a key in the panel (which
-      // removes it from `draft`) wouldn't actually delete it from disk — the
-      // old value would survive via the spread.
-      const next = {};
-      for (const [k, v] of Object.entries(nextStyles || {})) {
-        if (v !== '' && v != null) next[k] = v;
+    async (patch) => {
+      undoStackRef.current.push({ byRef: overrides, canvas: canvasStyles });
+      const next = { ...canvasStyles, ...patch };
+      // Strip empty keys so they don't pollute the persisted JSON.
+      for (const k of Object.keys(next)) {
+        if (next[k] === '' || next[k] == null) delete next[k];
       }
       setCanvasStyles(next);
-      await persistOverrides(designName, cur, next);
-      await notifyEvent('canvas.updated', { keys: Object.keys(next) });
+      await persistOverrides(designName, overrides, next);
+      await notifyEvent('canvas.updated', { keys: Object.keys(patch) });
       window.parent.postMessage({ type: '__overrides_updated', designName }, '*');
       scheduleDomSnapshot(designName);
     },
-    [designName, notifyEvent],
+    [designName, overrides, canvasStyles, notifyEvent],
   );
 
   // Take a baseline DOM snapshot when Edit mode is first entered, so the
@@ -984,6 +1104,16 @@ export function DesignReviewShell({ designName, children }) {
       {showHint && (
         <ModeHint commentMode={commentMode} hasSelection={selectedEls.length > 0} />
       )}
+
+      {/* Live region for AT — announces comment add/send/delete. Visually hidden. */}
+      <div
+        className="ds-review-ui sr-only"
+        role="status"
+        aria-live="polite"
+        aria-atomic="true"
+      >
+        {announcement}
+      </div>
     </ReviewCtx.Provider>
   );
 }

@@ -1,5 +1,5 @@
 import React from 'react';
-import { useDesignTweaksDialKit } from '../../../src/preview/useDesignTweaksDialKit.js';
+import { useDesignTweaks } from '../../../../src/lib/tweaks-panel.jsx';
 
 // Page tweaks: animation cadence + theme. Mounted only while this page is
 // active so the global panel swaps with the page.
@@ -432,7 +432,7 @@ const THEMES = {
 };
 
 export function TextStreamingPage({ designName }) {
-  const t = useDesignTweaksDialKit(designName, STREAM_TWEAKS);
+  const t = useDesignTweaks(designName, STREAM_TWEAKS);
   const aliveRef = React.useRef({ current: true });
   const speedRef = React.useRef(t.speed);
   speedRef.current = t.speed;

@@ -56,6 +56,17 @@ function ModePillButton({ active, onClick, title, children, badge, dot }) {
   );
 }
 
+function Kbd({ children }) {
+  return (
+    <kbd
+      data-slot="kbd"
+      className="ml-1 inline-flex h-4 items-center rounded-sm border border-background/25 bg-background/10 px-1 font-mono text-[10px] font-medium leading-none"
+    >
+      {children}
+    </kbd>
+  );
+}
+
 export default function HostApp() {
   const iframeRef = useRef(null);
   const bridge = useDesignHostBridge(iframeRef);
@@ -83,6 +94,45 @@ export default function HostApp() {
     return () => clearInterval(id);
   }, [activeDesign, pollQuestions]);
 
+  // Single-key toggles (c/e/t). Only fire on the host window — the canvas
+  // iframe runs its own ⌘1 / ⌘0 / ⌘[ / ⌘] handlers in its own window scope.
+  const {
+    toggleCommentMode,
+    toggleEditMode,
+    toggleTweaks,
+    clearPendingEvents,
+    reviewReady,
+    tweaksAvailable,
+  } = bridge;
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.metaKey || e.ctrlKey || e.altKey || e.shiftKey) return;
+      const t = e.target;
+      if (t?.closest?.('input, textarea, select, [contenteditable="true"]')) return;
+      const k = e.key.toLowerCase();
+      if (k === 'c' && reviewReady) {
+        e.preventDefault();
+        toggleCommentMode();
+        clearPendingEvents();
+      } else if (k === 'e' && reviewReady) {
+        e.preventDefault();
+        toggleEditMode();
+      } else if (k === 't' && tweaksAvailable) {
+        e.preventDefault();
+        toggleTweaks();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [
+    reviewReady,
+    tweaksAvailable,
+    toggleCommentMode,
+    toggleEditMode,
+    toggleTweaks,
+    clearPendingEvents,
+  ]);
+
   const copyAgentContext = useCallback(async () => {
     if (!activeDesign) return;
     try {
@@ -103,11 +153,11 @@ export default function HostApp() {
         <header className="flex flex-shrink-0 items-center gap-3 border-b border-border px-4 py-2">
           {/* ── Cluster 1: Identity (brand · design · page) ──────────────── */}
           <div className="flex items-center gap-2">
-            <strong className="text-sm tracking-tight">Design Space</strong>
+            <h1 className="text-sm font-bold tracking-tight">Design Space</h1>
             {activeDesign && (
-              <span className="font-mono text-[11px] tracking-tight text-muted-foreground">
+              <Badge variant="outline" className="font-mono text-[11px] tracking-tight">
                 designs/{activeDesign}
-              </span>
+              </Badge>
             )}
             {bridge.pages.length > 1 && (
               <DropdownMenu>
@@ -124,7 +174,7 @@ export default function HostApp() {
                   }
                 />
                 <DropdownMenuContent align="start" className="min-w-[200px]">
-                  {bridge.pages.map((p) => {
+                  {bridge.pages.map((p, i) => {
                     const isActive = p.id === bridge.activePage;
                     return (
                       <DropdownMenuItem
@@ -136,10 +186,22 @@ export default function HostApp() {
                         <span className="flex w-4 items-center justify-center">
                           {isActive && <Check className="size-3.5 text-foreground" />}
                         </span>
-                        <span>{p.title}</span>
+                        <span className="flex-1">{p.title}</span>
+                        <span className="ml-3 text-[10px] text-muted-foreground tabular-nums">
+                          {i + 1}/{bridge.pages.length}
+                        </span>
                       </DropdownMenuItem>
                     );
                   })}
+                  <div className="mt-1 flex items-center justify-end gap-1 border-t px-2 pt-1.5 pb-0.5 text-[10px] text-muted-foreground">
+                    <span>Switch</span>
+                    <kbd className="inline-flex h-4 items-center rounded-sm border bg-muted px-1 font-mono text-[10px] leading-none">
+                      ⌘[
+                    </kbd>
+                    <kbd className="inline-flex h-4 items-center rounded-sm border bg-muted px-1 font-mono text-[10px] leading-none">
+                      ⌘]
+                    </kbd>
+                  </div>
                 </DropdownMenuContent>
               </DropdownMenu>
             )}
@@ -204,43 +266,59 @@ export default function HostApp() {
               <ModePill>
                 {bridge.reviewReady && (
                   <>
-                    <ModePillButton
-                      active={bridge.commentMode}
-                      title="Add inline comments by clicking elements in the preview"
-                      onClick={() => {
-                        bridge.toggleCommentMode();
-                        bridge.clearPendingEvents();
-                      }}
-                      badge={
-                        openCount > 0 && (
-                          <Badge
-                            variant="secondary"
-                            className="ml-0.5 h-4 px-1.5 text-[10px] font-semibold"
+                    <Tooltip>
+                      <TooltipTrigger
+                        render={
+                          <ModePillButton
+                            active={bridge.commentMode}
+                            onClick={() => {
+                              bridge.toggleCommentMode();
+                              bridge.clearPendingEvents();
+                            }}
+                            badge={
+                              openCount > 0 && (
+                                <Badge
+                                  variant="secondary"
+                                  className="ml-0.5 h-4 px-1.5 text-[10px] font-semibold"
+                                >
+                                  {openCount}
+                                </Badge>
+                              )
+                            }
+                            dot={
+                              bridge.pendingEvents > 0 && (
+                                <span
+                                  aria-label="Unread events"
+                                  className="ml-0.5 size-1.5 rounded-full bg-primary"
+                                />
+                              )
+                            }
                           >
-                            {openCount}
-                          </Badge>
-                        )
-                      }
-                      dot={
-                        bridge.pendingEvents > 0 && (
-                          <span
-                            aria-label="Unread events"
-                            className="ml-0.5 size-1.5 rounded-full bg-primary"
-                          />
-                        )
-                      }
-                    >
-                      <MessageSquare className="size-3.5" />
-                      <span>Comments</span>
-                    </ModePillButton>
-                    <ModePillButton
-                      active={bridge.editMode}
-                      title="Edit text and basic styles; saved to overrides.json"
-                      onClick={bridge.toggleEditMode}
-                    >
-                      <Pencil className="size-3.5" />
-                      <span>Edit</span>
-                    </ModePillButton>
+                            <MessageSquare className="size-3.5" />
+                            <span>Comments</span>
+                          </ModePillButton>
+                        }
+                      />
+                      <TooltipContent>
+                        Click elements to comment<Kbd>C</Kbd>
+                      </TooltipContent>
+                    </Tooltip>
+                    <Tooltip>
+                      <TooltipTrigger
+                        render={
+                          <ModePillButton
+                            active={bridge.editMode}
+                            onClick={bridge.toggleEditMode}
+                          >
+                            <Pencil className="size-3.5" />
+                            <span>Edit</span>
+                          </ModePillButton>
+                        }
+                      />
+                      <TooltipContent>
+                        Edit text &amp; styles · overrides.json<Kbd>E</Kbd>
+                      </TooltipContent>
+                    </Tooltip>
                   </>
                 )}
                 {bridge.tweaksAvailable && (
@@ -250,14 +328,15 @@ export default function HostApp() {
                         <ModePillButton
                           active={bridge.tweaksOpen}
                           onClick={bridge.toggleTweaks}
-                          title="Open the tweaks panel for live design values"
                         >
                           <Sliders className="size-3.5" />
                           <span>Tweaks</span>
                         </ModePillButton>
                       }
                     />
-                    <TooltipContent>Live design values</TooltipContent>
+                    <TooltipContent>
+                      Live design values · per-design controls<Kbd>T</Kbd>
+                    </TooltipContent>
                   </Tooltip>
                 )}
               </ModePill>
@@ -265,7 +344,13 @@ export default function HostApp() {
           )}
 
           {bridge.questionsOpen && (
-            <Badge className="bg-[#D97757] text-white hover:bg-[#D97757]/90">Questions</Badge>
+            <Badge
+              role="status"
+              aria-label="Questions awaiting your answer"
+              className="bg-amber-500 text-white hover:bg-amber-500/90 motion-safe:animate-pulse"
+            >
+              Questions
+            </Badge>
           )}
         </header>
 

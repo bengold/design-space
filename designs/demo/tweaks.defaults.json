@@ -1,7 +1,11 @@
 {
-  "primaryColor": "#D97757",
-  "paletteName": "warm",
-  "fontSize": 16,
-  "density": "regular",
-  "dark": false
+  "primary": "#1B47F0",
+  "primaryDeep": "#0E2BB8",
+  "accent": "#FF6A2C",
+  "deviceDark": false,
+  "suit": "spade",
+  "rank": "A",
+  "paletteName": "bone",
+  "theme": "light",
+  "speed": 1
 }

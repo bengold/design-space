@@ -71,6 +71,19 @@ npx design-space state get
 - `npm test` — vitest smoke suite (core helpers + CLI round-trip)
 - `npm run lint` / `npm run format` — ESLint + Prettier
 
+## Optional: Google Fonts API key
+
+The Edit panel's **Font** dropdown ships a curated seed of ~50 popular Google Fonts plus all web-safe stacks. If you want the full ~1500-family catalog (sorted by popularity), set a Google Fonts API key:
+
+```bash
+cp .env.example .env.local
+# then edit .env.local and paste your key into VITE_GOOGLE_FONTS_API_KEY
+```
+
+Get a key from https://console.cloud.google.com/apis/credentials, enable the **Web Fonts Developer API** in the same project, and (recommended) restrict the key to `http://localhost:5173/*` under "Application restrictions". When set, picking any Google font in the Edit panel auto-injects the matching `<link>` stylesheet so the font renders live.
+
+`.env.local` is gitignored — never commit it.
+
 ## Install the skill (any agent)
 
 The `design-space` skill at `skills/design-space/SKILL.md` follows the open [Agent Skills](https://skills.sh) format and works with Claude Code, Cursor, Codex, Copilot, Cline, and ~50 other agents. Install it into any of them with one command:
@@ -104,7 +117,7 @@ The MCP server resolves the project root from `$DESIGN_SPACE_ROOT` (set automati
 
 ## Install as a Codex plugin
 
-The Codex plugin version lives in `.codex-plugin/plugin.json` and bundles the same skill plus the prebuilt MCP server via `.mcp.json`. Codex also discovers `hooks/hooks.json`, which runs the feedback poller on `UserPromptSubmit` so new Design Space comments and edits can be surfaced to the agent on the next turn.
+The Codex plugin version lives in `.codex-plugin/plugin.json` and bundles the same skill plus the prebuilt MCP server via `.codex-plugin/mcp.json` (resolved with `$CODEX_PLUGIN_ROOT`). The repo-root `.mcp.json` is the Claude Code project-scoped MCP config and resolves the same server with `$CLAUDE_PROJECT_DIR` — that way both tools find the bundle without colliding on env vars. Codex also discovers `hooks/hooks.json`, which runs the feedback poller on `UserPromptSubmit` so new Design Space comments and edits can be surfaced to the agent on the next turn.
 
 The MCP server and hook both resolve the active Design Space project from `$DESIGN_SPACE_ROOT`, Codex/Claude/Cursor project env vars, hook `cwd`/`workspace_roots`, or by walking up from the current working directory to find `designs/active.json`.
 

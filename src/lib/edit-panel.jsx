@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { HexAlphaColorPicker } from 'react-colorful';
 import { colord } from 'colord';
 import { ChevronDown, X } from 'lucide-react';
 
+import { Button } from '@/components/ui/button';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -177,6 +178,17 @@ function opacityPercent(value) {
   return Math.round(n <= 1 ? n * 100 : n);
 }
 
+// Short identity string for the panel header — surfaces tag + first class /
+// data-ds-ref so AT (and sighted users) know which element is being edited.
+function describeElForHeader(el) {
+  if (!el) return '';
+  const tag = el.tagName?.toLowerCase() || 'element';
+  const ref = el.getAttribute?.('data-ds-ref');
+  if (ref) return `<${tag}> · ${ref}`;
+  const cls = (el.className || '').toString().trim().split(/\s+/).filter(Boolean)[0];
+  return cls ? `<${tag}>.${cls}` : `<${tag}>`;
+}
+
 // All-equal check for 4-side shorthand preview ("0 px" when T=R=B=L).
 function shorthandPreview(styles, keys, fallbackUnit = 'px') {
   const values = keys.map((k) => styles[k]);
@@ -189,30 +201,58 @@ function shorthandPreview(styles, keys, fallbackUnit = 'px') {
 // ─── field shell ──────────────────────────────────────────────────────────────
 
 const ROW_CLS =
-  'flex h-9 items-center gap-2 rounded-lg border border-input bg-background px-3 text-sm';
+  'flex h-9 items-center gap-2 rounded-lg border border-input bg-background px-3 text-sm focus-within:ring-2 focus-within:ring-ring focus-within:border-ring';
 const ROW_INVALID_CLS = 'border-destructive ring-1 ring-destructive/30';
 
-function FieldShell({ label, children, className, invalid = false }) {
+function FieldShell({ inputId, label, children, className, invalid = false, errorId }) {
   return (
     <div
       className={cn(ROW_CLS, invalid && ROW_INVALID_CLS, className)}
       data-invalid={invalid || undefined}
     >
-      <span className="shrink-0 text-xs text-muted-foreground">{label}</span>
+      {label != null && (
+        <label
+          htmlFor={inputId}
+          className="shrink-0 cursor-default text-xs text-muted-foreground"
+        >
+          {label}
+        </label>
+      )}
       {children}
+      {invalid && errorId && (
+        <span id={errorId} role="alert" className="sr-only">
+          Invalid value
+        </span>
+      )}
     </div>
   );
 }
 
-function FieldInput({ value, onChange, invalid = false, ...props }) {
+// IME guard: don't fire onChange mid-composition so partial CJK/accent input
+// isn't validated and rejected before the user finishes composing.
+function FieldInput({ value, onChange, invalid = false, errorId, ...props }) {
+  const composingRef = useRef(false);
   return (
     <input
       {...props}
       value={value ?? ''}
-      onChange={(e) => onChange(e.target.value)}
+      onCompositionStart={(e) => {
+        composingRef.current = true;
+        props.onCompositionStart?.(e);
+      }}
+      onCompositionEnd={(e) => {
+        composingRef.current = false;
+        props.onCompositionEnd?.(e);
+        onChange(e.currentTarget.value);
+      }}
+      onChange={(e) => {
+        if (composingRef.current) return;
+        onChange(e.target.value);
+      }}
       aria-invalid={invalid || undefined}
+      aria-errormessage={invalid && errorId ? errorId : undefined}
       className={cn(
-        'min-w-0 flex-1 border-0 bg-transparent text-right text-sm text-foreground outline-none',
+        'min-w-0 flex-1 border-0 bg-transparent text-right text-sm text-foreground outline-none focus-visible:outline-none',
         props.className,
       )}
     />
@@ -238,6 +278,8 @@ function useDraft(value, validate) {
 }
 
 function NumericRow({ label, value, onChange, unit = 'px', full = false, styleKey }) {
+  const id = useId();
+  const errorId = `${id}-err`;
   const { num, unit: u } = splitUnit(value, unit);
   // Validate the joined "num+unit" string, since that's what gets persisted.
   const [draftNum, setDraftNum] = useState(num);
@@ -277,20 +319,33 @@ function NumericRow({ label, value, onChange, unit = 'px', full = false, styleKe
   };
 
   return (
-    <FieldShell label={label} className={full ? 'w-full' : undefined} invalid={invalid}>
+    <FieldShell
+      inputId={id}
+      label={label}
+      className={full ? 'w-full' : undefined}
+      invalid={invalid}
+      errorId={invalid ? errorId : undefined}
+    >
       <FieldInput
+        id={id}
         value={draftNum}
         onChange={handleChange}
         onKeyDown={handleKeyDown}
         inputMode="decimal"
         invalid={invalid}
+        errorId={errorId}
+        aria-keyshortcuts="ArrowUp ArrowDown Shift+ArrowUp Shift+ArrowDown Alt+ArrowUp Alt+ArrowDown"
       />
-      <span className="shrink-0 text-xs text-muted-foreground">{u || unit}</span>
+      <span aria-hidden className="shrink-0 text-xs text-muted-foreground">
+        {u || unit}
+      </span>
     </FieldShell>
   );
 }
 
 function TextRow({ label, value, onChange, placeholder, full = false, mono = false, styleKey }) {
+  const id = useId();
+  const errorId = `${id}-err`;
   const validate = styleKey ? (v) => validateStyleValue(styleKey, v) : null;
   const { draft, setDraft, error } = useDraft(value, validate);
   const invalid = !!error;
@@ -303,19 +358,28 @@ function TextRow({ label, value, onChange, placeholder, full = false, mono = fal
   };
 
   return (
-    <FieldShell label={label} className={full ? 'w-full' : undefined} invalid={invalid}>
+    <FieldShell
+      inputId={id}
+      label={label}
+      className={full ? 'w-full' : undefined}
+      invalid={invalid}
+      errorId={invalid ? errorId : undefined}
+    >
       <FieldInput
+        id={id}
         value={draft}
         placeholder={placeholder}
         onChange={handleChange}
         className={mono ? 'font-mono text-xs' : undefined}
         invalid={invalid}
+        errorId={errorId}
       />
     </FieldShell>
   );
 }
 
 function SelectRow({ label, value, options, onChange, full = false }) {
+  const id = useId();
   // Normalize: strings → {label, value}; headers stay as-is.
   const opts = options.map((o) => (typeof o === 'string' ? { label: o, value: o } : o));
   // Group consecutive non-header entries under the most-recent header into
@@ -333,11 +397,12 @@ function SelectRow({ label, value, options, onChange, full = false }) {
     }
   }
   return (
-    <FieldShell label={label} className={cn('relative', full && 'w-full')}>
+    <FieldShell inputId={id} label={label} className={cn('relative', full && 'w-full')}>
       <select
+        id={id}
         value={value ?? ''}
         onChange={(e) => onChange(e.target.value)}
-        className="min-w-0 flex-1 cursor-pointer appearance-none border-0 bg-transparent pr-4 text-right text-sm text-foreground outline-none"
+        className="min-w-0 flex-1 cursor-pointer appearance-none border-0 bg-transparent pr-6 text-right text-sm text-foreground outline-none focus-visible:outline-none"
       >
         <option value="">—</option>
         {groups.map((g, gi) => {
@@ -377,7 +442,7 @@ function DocumentColorSwatches({ onPick }) {
   }, []);
   if (!colors?.length) return null;
   return (
-    <div className="mt-2 flex flex-wrap gap-1">
+    <div className="mt-2 flex flex-wrap gap-1" role="group" aria-label="Colors used in this document">
       {colors.map((c) => (
         <button
           key={c}
@@ -385,15 +450,24 @@ function DocumentColorSwatches({ onPick }) {
           aria-label={`Use ${c}`}
           title={c}
           onClick={() => onPick(c)}
-          className="size-5 rounded border border-border"
-          style={{ background: c }}
-        />
+          className="size-6 shrink-0 rounded border border-border focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
+          style={{
+            backgroundImage:
+              'linear-gradient(45deg, #ccc 25%, transparent 25%), linear-gradient(-45deg, #ccc 25%, transparent 25%), linear-gradient(45deg, transparent 75%, #ccc 75%), linear-gradient(-45deg, transparent 75%, #ccc 75%)',
+            backgroundSize: '6px 6px',
+            backgroundPosition: '0 0, 0 3px, 3px -3px, -3px 0',
+          }}
+        >
+          <span className="block size-full rounded-[3px]" style={{ background: c }} />
+        </button>
       ))}
     </div>
   );
 }
 
 function ColorRow({ label, value, onChange, full = false }) {
+  const id = useId();
+  const errorId = `${id}-err`;
   const hex = colorToHex(value);
   const swatch = colord(hex).isValid() ? hex : 'transparent';
 
@@ -423,43 +497,57 @@ function ColorRow({ label, value, onChange, full = false }) {
   };
 
   return (
-    <FieldShell label={label} className={full ? 'w-full' : undefined} invalid={invalid}>
+    <FieldShell
+      inputId={id}
+      label={label}
+      className={full ? 'w-full' : undefined}
+      invalid={invalid}
+      errorId={invalid ? errorId : undefined}
+    >
       <Popover>
         <PopoverTrigger
           render={(props) => (
             <button
               type="button"
               {...props}
-              className="size-4 shrink-0 rounded border border-foreground/20 shadow-[inset_0_0_0_1px_rgb(255_255_255_/_0.5)]"
+              className="size-4 shrink-0 rounded border border-foreground/20 shadow-[inset_0_0_0_1px_rgb(255_255_255_/_0.5)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
               style={{
                 backgroundImage:
                   'linear-gradient(45deg, #ccc 25%, transparent 25%), linear-gradient(-45deg, #ccc 25%, transparent 25%), linear-gradient(45deg, transparent 75%, #ccc 75%), linear-gradient(-45deg, transparent 75%, #ccc 75%)',
                 backgroundSize: '6px 6px',
                 backgroundPosition: '0 0, 0 3px, 3px -3px, -3px 0',
               }}
-              aria-label="Pick color"
+              aria-label={`${label}: pick color`}
             >
               <span className="block size-full rounded-[3px]" style={{ background: swatch }} />
             </button>
           )}
         />
-        <PopoverContent align="end" className="w-auto p-3">
+        <PopoverContent
+          align="end"
+          className="w-auto p-3"
+          role="dialog"
+          aria-label={`${label} color picker — use the hex input for keyboard entry`}
+        >
           <HexAlphaColorPicker color={hex} onChange={handlePicker} />
           <DocumentColorSwatches onPick={handlePicker} />
         </PopoverContent>
       </Popover>
       <FieldInput
+        id={id}
         value={draft}
         onChange={handleInput}
         placeholder="auto"
-        className="font-mono text-xs"
+        className="min-w-[10ch] font-mono text-xs"
         invalid={invalid}
+        errorId={errorId}
       />
     </FieldShell>
   );
 }
 
 function OpacityRow({ value, onChange }) {
+  const id = useId();
   const pct = opacityPercent(value);
   // Base UI's Slider passes a number for single-thumb, array for range. Handle
   // both so we don't quietly fail.
@@ -470,8 +558,11 @@ function OpacityRow({ value, onChange }) {
     onChange(String(clamped));
   };
   return (
-    <FieldShell label="Opacity" className="w-full">
+    <FieldShell inputId={id} label="Opacity" className="w-full">
       <Slider
+        id={id}
+        aria-label="Opacity"
+        aria-valuetext={`${pct} percent`}
         value={[pct]}
         min={0}
         max={100}
@@ -479,8 +570,12 @@ function OpacityRow({ value, onChange }) {
         onValueChange={apply}
         className="min-w-0 flex-1"
       />
-      <span className="w-8 shrink-0 text-right text-xs tabular-nums text-foreground">{pct}</span>
-      <span className="shrink-0 text-xs text-muted-foreground">%</span>
+      <span aria-hidden className="w-8 shrink-0 text-right text-xs tabular-nums text-foreground">
+        {pct}
+      </span>
+      <span aria-hidden className="shrink-0 text-xs text-muted-foreground">
+        %
+      </span>
     </FieldShell>
   );
 }
@@ -696,13 +791,7 @@ function readComputed(el, key) {
 function computePositionModeSwitch(el, mode) {
   if (!el) return null;
   if (mode === 'static' || mode === 'relative') {
-    return {
-      position: mode === 'static' ? '' : 'relative',
-      left: '',
-      top: '',
-      right: '',
-      bottom: '',
-    };
+    return { position: mode === 'static' ? '' : 'relative', left: '', top: '', right: '', bottom: '' };
   }
   const r = el.getBoundingClientRect();
   if (mode === 'fixed') {
@@ -730,18 +819,21 @@ function computePositionModeSwitch(el, mode) {
 
 const POSITION_MODES = ['static', 'relative', 'absolute', 'fixed'];
 
-function PositionRow({ el, styleOf, patchStyles }) {
+function PositionRow({ el, styleOf, setStyle }) {
+  const labelId = useId();
   const current = styleOf('position') || 'static';
   const mode = POSITION_MODES.includes(current) ? current : 'static';
   const applyMode = (next) => {
     if (!next || next === mode) return;
     const patch = computePositionModeSwitch(el, next);
     if (!patch) return;
-    patchStyles(patch);
+    for (const [k, v] of Object.entries(patch)) setStyle(k, v);
   };
   return (
     <div className={cn(ROW_CLS, 'w-full justify-between')}>
-      <span className="shrink-0 text-xs text-muted-foreground">Position</span>
+      <span id={labelId} className="shrink-0 text-xs text-muted-foreground">
+        Position
+      </span>
       <ToggleGroup
         type="single"
         size="sm"
@@ -749,7 +841,8 @@ function PositionRow({ el, styleOf, patchStyles }) {
         variant="outline"
         value={mode}
         onValueChange={applyMode}
-        className="h-6"
+        className="h-7"
+        aria-labelledby={labelId}
       >
         {POSITION_MODES.map((m) => (
           <ToggleGroupItem
@@ -757,7 +850,7 @@ function PositionRow({ el, styleOf, patchStyles }) {
             value={m}
             size="sm"
             variant="outline"
-            className="h-6 px-2 text-[11px] font-medium"
+            className="h-7 px-3 text-[11px] font-medium"
           >
             {m}
           </ToggleGroupItem>
@@ -767,39 +860,22 @@ function PositionRow({ el, styleOf, patchStyles }) {
   );
 }
 
-function EditPanelBody({ el, overrides, onApply }) {
+function EditPanelBody({ el, overrides, onApply, onClose }) {
   const ref = ensureDsRef(el);
   // Capture `overrides` via ref so init only fires on element change — not when
   // our own auto-persist updates the overrides map (which would re-init in a loop).
   const overridesRef = useRef(overrides);
   overridesRef.current = overrides;
 
-  // Capture `onApply` via ref so the persist effect doesn't refire every time
-  // the parent re-creates the callback. Without this, every successful write
-  // changed `onApply`'s identity, retriggering the effect → another timer →
-  // another write → cascade (15+ empty writes per element selection).
-  const onApplyRef = useRef(onApply);
-  onApplyRef.current = onApply;
-
   // `styles` holds ONLY user-edited deltas — never the computed snapshot.
   const [styles, setStyles] = useState({});
   const [cssText, setCssText] = useState('');
   const initialized = useRef(false);
-  // JSON snapshot of the last payload we persisted (or initial state we loaded).
-  // Belt-and-suspenders: even if the persist effect refires for any other
-  // reason, we never write the same payload twice in a row.
-  const lastPersistedRef = useRef('');
 
   useEffect(() => {
     const initial = overridesRef.current[ref] || {};
-    const initStyles = initial.styles || {};
-    const initCss = initial.cssText || '';
-    setStyles(initStyles);
-    setCssText(initCss);
-    lastPersistedRef.current = JSON.stringify({
-      styles: initStyles,
-      cssText: initCss.trim() || undefined,
-    });
+    setStyles(initial.styles || {});
+    setCssText(initial.cssText || '');
     initialized.current = false;
     const id = requestAnimationFrame(() => {
       initialized.current = true;
@@ -814,16 +890,15 @@ function EditPanelBody({ el, overrides, onApply }) {
   // in the preview to edit it inline (selection-picker handles that flow and
   // calls applyOverride directly with { textContent }).
   useEffect(() => {
-    if (!initialized.current) return undefined;
-    const payload = { styles, cssText: cssText.trim() || undefined };
-    const key = JSON.stringify(payload);
-    if (key === lastPersistedRef.current) return undefined;
+    if (!initialized.current) return;
     const t = setTimeout(() => {
-      lastPersistedRef.current = key;
-      onApplyRef.current(ref, payload);
+      onApply(ref, {
+        styles,
+        cssText: cssText.trim() || undefined,
+      });
     }, 250);
     return () => clearTimeout(t);
-  }, [ref, styles, cssText]);
+  }, [ref, styles, cssText, onApply]);
 
   const setStyle = (key, value) => {
     setStyles((s) => {
@@ -834,19 +909,6 @@ function EditPanelBody({ el, overrides, onApply }) {
       return { ...s, [key]: value };
     });
   };
-  // Single state update for multi-key changes (position-mode switch sets
-  // position + left/top/right/bottom together; sequential setStyle calls would
-  // produce four onApply ticks under the debounce).
-  const patchStyles = (patch) => {
-    setStyles((s) => {
-      const next = { ...s };
-      for (const [k, v] of Object.entries(patch)) {
-        if (v === '' || v == null) delete next[k];
-        else next[k] = v;
-      }
-      return next;
-    });
-  };
   // Read order: in-flight user edit first, then any persisted override, then
   // computed (for display only). The displayed value is what the user sees in
   // the input; `styles` is what gets persisted.
@@ -854,8 +916,7 @@ function EditPanelBody({ el, overrides, onApply }) {
 
   const previewStyle = useLivePreview(ref, el, styles, cssText);
 
-  // getDocumentFonts walks document.fonts — stateless w.r.t. `el`, so no dep.
-  const inDocFonts = useMemo(() => getDocumentFonts(), []);
+  const inDocFonts = useMemo(() => getDocumentFonts(), [el]);
   const { options: fontOptions, pickFont } = useFontOptions(styleOf('fontFamily'), inDocFonts);
 
   return (
@@ -975,7 +1036,7 @@ function EditPanelBody({ el, overrides, onApply }) {
 
           <section className="flex flex-col gap-2">
             <SectionLabel>Position</SectionLabel>
-            <PositionRow el={el} styleOf={styleOf} patchStyles={patchStyles} />
+            <PositionRow el={el} styleOf={styleOf} setStyle={setStyle} />
             {styleOf('position') === 'absolute' ||
             styleOf('position') === 'fixed' ||
             styleOf('position') === 'relative' ? (
@@ -1067,36 +1128,64 @@ function EditPanelBody({ el, overrides, onApply }) {
           </section>
 
           <Collapsible>
-            <CollapsibleTrigger
-              render={(props) => (
-                <button type="button" {...props} className={cn(ROW_CLS, 'w-full text-left')}>
-                  <span className="shrink-0 text-xs text-muted-foreground">Custom CSS</span>
-                  <span className="ml-auto truncate font-mono text-[10px] text-muted-foreground">
-                    {cssText ? `${cssText.slice(0, 28)}…` : 'none'}
-                  </span>
-                  <ChevronDown aria-hidden className="size-3 shrink-0 text-muted-foreground" />
-                </button>
-              )}
-            />
-            <CollapsibleContent>
-              <Textarea
-                value={cssText}
-                onChange={(e) => setCssText(e.target.value)}
-                placeholder="transform: scale(1.05); …"
-                rows={3}
-                aria-invalid={cssError ? true : undefined}
-                className={cn(
-                  'mt-1.5 font-mono text-xs',
-                  cssError && 'border-destructive ring-1 ring-destructive/30',
-                )}
-              />
-              {cssError ? (
-                <p className="mt-1 px-1 text-[11px] text-destructive">{cssError}</p>
-              ) : null}
-            </CollapsibleContent>
+            <CssEditor cssText={cssText} setCssText={setCssText} cssError={cssError} />
           </Collapsible>
         </div>
       </ScrollArea>
+    </>
+  );
+}
+
+// CSS editor — IME-safe Textarea with proper label + error message wiring.
+function CssEditor({ cssText, setCssText, cssError }) {
+  const id = useId();
+  const errorId = `${id}-err`;
+  const composingRef = useRef(false);
+  return (
+    <>
+      <CollapsibleTrigger
+        render={(props) => (
+          <button type="button" {...props} className={cn(ROW_CLS, 'w-full text-left')}>
+            <label htmlFor={id} className="shrink-0 cursor-default text-xs text-muted-foreground">
+              Custom CSS
+            </label>
+            <span aria-hidden className="ml-auto truncate font-mono text-[10px] text-muted-foreground">
+              {cssText ? `${cssText.slice(0, 28)}…` : 'none'}
+            </span>
+            <ChevronDown aria-hidden className="size-3 shrink-0 text-muted-foreground" />
+          </button>
+        )}
+      />
+      <CollapsibleContent>
+        <Textarea
+          id={id}
+          value={cssText}
+          onCompositionStart={() => {
+            composingRef.current = true;
+          }}
+          onCompositionEnd={(e) => {
+            composingRef.current = false;
+            setCssText(e.currentTarget.value);
+          }}
+          onChange={(e) => {
+            if (composingRef.current) return;
+            setCssText(e.target.value);
+          }}
+          placeholder="transform: scale(1.05); …"
+          rows={3}
+          aria-invalid={cssError ? true : undefined}
+          aria-errormessage={cssError ? errorId : undefined}
+          className={cn(
+            'mt-1.5 font-mono text-xs',
+            cssError && 'border-destructive ring-1 ring-destructive/30',
+          )}
+        />
+        {cssError ? (
+          <p id={errorId} role="alert" className="mt-1 px-1 text-[11px] text-destructive">
+            {cssError}
+          </p>
+        ) : null}
+      </CollapsibleContent>
     </>
   );
 }
@@ -1130,24 +1219,7 @@ function CanvasPanelBody({ canvasStyles, onApplyCanvas }) {
   const { options: canvasFontOptions, pickFont } = useFontOptions(draft.fontFamily, inDocFonts);
   const isRawPage = useIsRawPage();
 
-  // Capture the apply callback via ref — same fix pattern as EditPanelBody.
-  // Without it, each persisted write changes onApplyCanvas's identity, which
-  // refires the persist effect → another write → cascade.
-  const onApplyCanvasRef = useRef(onApplyCanvas);
-  onApplyCanvasRef.current = onApplyCanvas;
-
-  // Tracks the JSON of the last canvas snapshot we know is in sync with disk.
-  // Used both to ignore our own outbound writes coming back through props, and
-  // to skip persist-effect refires that would otherwise re-write the same data.
-  const lastPersistedRef = useRef(JSON.stringify(canvasStyles || {}));
-
-  // If canvasStyles arrives externally (file reload, undo, another tab), adopt
-  // it. If it matches what we just persisted, do nothing — otherwise setDraft
-  // would mutate the draft reference and retrigger our own persist.
   useEffect(() => {
-    const key = JSON.stringify(canvasStyles || {});
-    if (key === lastPersistedRef.current) return;
-    lastPersistedRef.current = key;
     setDraft(canvasStyles || {});
   }, [canvasStyles]);
 
@@ -1157,14 +1229,11 @@ function CanvasPanelBody({ canvasStyles, onApplyCanvas }) {
       initialized.current = true;
       return undefined;
     }
-    const key = JSON.stringify(draft);
-    if (key === lastPersistedRef.current) return undefined;
     const t = setTimeout(() => {
-      lastPersistedRef.current = key;
-      onApplyCanvasRef.current(draft);
+      onApplyCanvas(draft);
     }, 250);
     return () => clearTimeout(t);
-  }, [draft]);
+  }, [draft, onApplyCanvas]);
 
   const set = (key, value) => {
     setDraft((d) => {
@@ -1263,14 +1332,27 @@ export function EditPanel({
         className="ds-review-ui flex w-[340px] flex-col gap-0 p-0 sm:w-[360px]"
       >
         <div className="flex items-center justify-between border-b border-border px-4 py-3">
-          <h2 className="text-sm font-semibold text-foreground">{el ? 'Edit element' : 'Edit'}</h2>
+          <div className="min-w-0 flex-1">
+            <h2 className="text-sm font-semibold text-foreground">
+              {el ? 'Edit element' : 'Edit canvas'}
+            </h2>
+            {el && (
+              <div
+                role="status"
+                aria-live="polite"
+                className="truncate font-mono text-[11px] text-muted-foreground"
+              >
+                {describeElForHeader(el)}
+              </div>
+            )}
+          </div>
           <div className="flex items-center gap-1">
             {el && (
               <button
                 type="button"
                 onClick={onClearSelection}
                 title="Back to canvas settings"
-                className="rounded-md px-2 py-1 text-[11px] font-medium text-muted-foreground hover:bg-muted hover:text-foreground"
+                className="rounded-md px-2 py-1 text-[11px] font-medium text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               >
                 Canvas
               </button>
@@ -1278,8 +1360,8 @@ export function EditPanel({
             <button
               type="button"
               onClick={onClose}
-              aria-label="Close"
-              className="grid size-7 place-items-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
+              aria-label="Close edit panel"
+              className="grid size-8 place-items-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >
               <X className="size-4" />
             </button>
@@ -1287,7 +1369,7 @@ export function EditPanel({
         </div>
 
         {el ? (
-          <EditPanelBody el={el} overrides={overrides} onApply={onApply} />
+          <EditPanelBody el={el} overrides={overrides} onApply={onApply} onClose={onClose} />
         ) : (
           <CanvasPanelBody canvasStyles={canvasStyles} onApplyCanvas={onApplyCanvas} />
         )}

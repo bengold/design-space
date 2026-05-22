@@ -11,6 +11,7 @@ import {
   getActiveDesign,
   loadFeedbackBundle,
   openQuestions,
+  readDomSnapshot,
   readEvents,
   resolveCommentsFs,
   waitForEvents,
@@ -18,7 +19,7 @@ import {
 } from '../lib/design-space-core.mjs';
 
 const server = new Server(
-  { name: 'design-space', version: '0.2.0' },
+  { name: 'design-space', version: '0.3.0' },
   { capabilities: { tools: {} } },
 );
 
@@ -111,6 +112,15 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
       },
     },
     {
+      name: 'design_space_dom_snapshot',
+      description:
+        'Read the latest pretty-printed DOM snapshot for a design. Captures the current rendered structure (with React component names) so the agent can diff what the user sees against the source Design.jsx. The host writes this on Edit mode entry and after each override edit; if missing, ask the user to open the design and enter Edit mode.',
+      inputSchema: {
+        type: 'object',
+        properties: { design: { type: 'string' } },
+      },
+    },
+    {
       name: 'design_space_comments_resolve',
       description:
         'Dismiss/resolve comments after handling. Omit commentIds to resolve all open comments.',
@@ -177,6 +187,9 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
         const bundle = loadFeedbackBundle(design);
         return text({ inbox: bundle.agentInbox, markdown: bundle.agentInboxMd });
       }
+
+      case 'design_space_dom_snapshot':
+        return text(readDomSnapshot(design));
 
       case 'design_space_comments_resolve': {
         const ids = args?.commentIds || [];

@@ -1,5 +1,5 @@
 import React from 'react';
-import { useDesignTweaksDialKit } from '../../../src/preview/useDesignTweaksDialKit.js';
+import { useDesignTweaks } from '../../../../src/lib/tweaks-panel.jsx';
 
 // Tweaks specific to this page. Mounted only while the Cards page is active.
 const CARD_TWEAKS = {
@@ -172,7 +172,7 @@ function CardArt({ ink, paper, suit, rank }) {
 }
 
 export function IridescentCardPage({ designName }) {
-  const t = useDesignTweaksDialKit(designName, CARD_TWEAKS);
+  const t = useDesignTweaks(designName, CARD_TWEAKS);
   const cardRef = React.useRef(null);
   const stateRef = React.useRef({
     tx: 0,

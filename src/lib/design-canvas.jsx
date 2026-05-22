@@ -30,9 +30,11 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 const DC = {
   bg: '#f0eee9',
   grid: 'rgba(0,0,0,0.06)',
-  label: 'rgba(60,50,40,0.7)',
-  title: 'rgba(40,30,20,0.85)',
-  subtitle: 'rgba(60,50,40,0.6)',
+  // Bumped from rgba(60,50,40,0.7) → ≥4.5:1 against bg for WCAG AA.
+  label: 'rgba(40,30,20,0.85)',
+  title: 'rgba(40,30,20,0.92)',
+  // Subtitle is body-sized copy, so it also needs AA against the warm bg.
+  subtitle: 'rgba(40,30,20,0.78)',
   postitBg: '#fef4a8',
   postitText: '#5a4a2a',
   font: '-apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif',
@@ -62,24 +64,29 @@ if (typeof document !== 'undefined' && !document.getElementById('dc-styles')) {
     '.dc-header{position:absolute;bottom:100%;left:-4px;margin-bottom:calc(4px * var(--dc-inv-zoom,1));z-index:2;',
     '  display:flex;align-items:center;container-type:inline-size}',
     '.dc-labelrow{display:flex;align-items:center;gap:4px;height:24px;flex:1 1 auto;min-width:0}',
-    '.dc-grip{flex:0 0 auto;cursor:grab;display:flex;align-items:center;padding:5px 4px;border-radius:4px;transition:background .12s,opacity .12s}',
+    '.dc-grip{flex:0 0 auto;cursor:grab;display:flex;align-items:center;padding:5px 4px;border-radius:4px;border:0;background:transparent;color:inherit;transition:background .12s,opacity .12s}',
     '.dc-grip:hover{background:rgba(0,0,0,.08)}',
     '.dc-grip:active{cursor:grabbing}',
+    '.dc-grip:focus-visible{outline:2px solid #c96442;outline-offset:1px;background:rgba(0,0,0,.06)}',
     '.dc-labeltext{flex:1 1 auto;min-width:0;cursor:pointer;border-radius:4px;padding:3px 6px;',
-    '  display:flex;align-items:center;transition:background .12s;overflow:hidden}',
+    '  display:flex;align-items:center;transition:background .12s;overflow:hidden;',
+    '  background:transparent;border:0;color:inherit;text-align:left;font:inherit}',
+    '.dc-labeltext:focus-visible{outline:2px solid #c96442;outline-offset:1px}',
     // Below ~4ch of label room: hide the label entirely, and drop the grip to
     // hover-only (same reveal rule as .dc-btns) so a narrow header is clean
-    // until the card is moused.
+    // until the card is moused. :focus-within reveals so keyboard users can
+    // still reach them.
     '@container (max-width: 110px){',
     '  .dc-labeltext{display:none}',
     '  .dc-grip{opacity:0}',
-    '  [data-dc-slot]:hover .dc-grip{opacity:1}',
+    '  [data-dc-slot]:hover .dc-grip,[data-dc-slot]:focus-within .dc-grip{opacity:1}',
+    '  [data-dc-slot]:focus-within .dc-labeltext{display:flex}',
     '}',
     '.dc-labeltext:hover{background:rgba(0,0,0,.05)}',
     '.dc-labeltext .dc-editable{overflow:hidden;text-overflow:ellipsis;max-width:100%}',
     '.dc-labeltext .dc-editable:focus{overflow:visible;text-overflow:clip}',
     '.dc-btns{flex:0 0 auto;margin-left:auto;display:flex;gap:2px;opacity:0;transition:opacity .12s}',
-    '[data-dc-slot]:hover .dc-btns,.dc-btns[data-menu-open="true"]{opacity:1}',
+    '[data-dc-slot]:hover .dc-btns,[data-dc-slot]:focus-within .dc-btns,.dc-btns[data-menu-open="true"]{opacity:1}',
     // Header icon buttons get a transparent ghost look matching the warm-gray
     // chrome palette; the shadcn Button base supplies focus rings + sizing.
     '.dc-header [data-slot="button"]{color:rgba(60,50,40,.7);background:transparent;border:none}',
@@ -384,7 +391,20 @@ function DesignCanvas({ children, minScale, maxScale, style }) {
         // Raw page — bypass the pan/zoom canvas entirely. Children render
         // full-viewport. Used for standalone showcases / full-screen demos
         // where the canvas chrome would just be in the way.
+        //
+        // `data-dc-slot` is set to the page id so that elementContext.js
+        // treats the whole raw page as a single "artboard" — Edit/Comment
+        // picking, ensureDsRef path-building, and isReviewTarget all key off
+        // [data-dc-slot]. Without it, clicks on raw-page elements are
+        // silently ignored.
+        //
+        // Deliberately NO `.design-canvas` class — that's the scoping
+        // selector for canvas-wide overrides (background/font/text color),
+        // which are meaningless on raw pages. `data-dc-page-raw` is the
+        // detection marker the edit panel uses to hide the Canvas controls.
         <div
+          data-dc-slot={activePage?.props.id}
+          data-dc-page-raw=""
           style={{
             width: '100vw',
             height: '100vh',
@@ -1235,8 +1255,25 @@ function DCArtboardFrame({
         onPointerDown={(e) => e.stopPropagation()}
       >
         <div className="dc-labelrow">
-          <div className="dc-grip" onPointerDown={onGripDown} title="Drag to reorder">
-            <svg width="9" height="13" viewBox="0 0 9 13" fill="currentColor">
+          <button
+            type="button"
+            className="dc-grip"
+            onPointerDown={onGripDown}
+            onKeyDown={(e) => {
+              if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+              if (!onReorder) return;
+              const i = order.indexOf(id);
+              const j = i + (e.key === 'ArrowLeft' ? -1 : 1);
+              if (i < 0 || j < 0 || j >= order.length) return;
+              e.preventDefault();
+              const next = order.slice();
+              [next[i], next[j]] = [next[j], next[i]];
+              onReorder(next);
+            }}
+            aria-label={`Reorder artboard ${label}. Use Left or Right arrow to move, or drag.`}
+            title="Drag to reorder (Left/Right arrow with keyboard)"
+          >
+            <svg aria-hidden width="9" height="13" viewBox="0 0 9 13" fill="currentColor">
               <circle cx="2" cy="2" r="1.1" />
               <circle cx="7" cy="2" r="1.1" />
               <circle cx="2" cy="6.5" r="1.1" />
@@ -1244,8 +1281,27 @@ function DCArtboardFrame({
               <circle cx="2" cy="11" r="1.1" />
               <circle cx="7" cy="11" r="1.1" />
             </svg>
-          </div>
-          <div className="dc-labeltext" onClick={onFocus} title="Click to focus">
+          </button>
+          {/* Labeltext: clicking the row focuses the artboard, but the inline
+              editable inside is its own interactive — so this is role="button"
+              with Enter handler rather than a real <button> (which can't
+              legally contain another interactive). */}
+          <div
+            className="dc-labeltext"
+            role="button"
+            tabIndex={0}
+            onClick={onFocus}
+            onKeyDown={(e) => {
+              // Don't steal Enter/Space while editing the inline name.
+              if (e.target?.isContentEditable) return;
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                onFocus?.();
+              }
+            }}
+            aria-label={`Focus artboard ${label}`}
+            title="Click to focus"
+          >
             <DCEditable
               value={label}
               onChange={onRename}
@@ -1379,26 +1435,41 @@ function DCFocusOverlay({ entry, sectionMeta, sectionOrder }) {
   const idx = peers.indexOf(aid);
   const secIdx = sectionOrder.indexOf(sectionId);
 
-  const go = (d) => {
-    const n = peers[(idx + d + peers.length) % peers.length];
-    if (n) ctx.setFocus(`${sectionId}/${n}`);
-  };
-  const goSection = (d) => {
-    // Sections whose artboards are all deleted have slotIds:[] — step past
-    // them to the next non-empty section so ↑/↓ doesn't dead-end.
-    const n = sectionOrder.length;
-    for (let i = 1; i < n; i++) {
-      const ns = sectionOrder[(((secIdx + d * i) % n) + n) % n];
-      const first = sectionMeta[ns] && sectionMeta[ns].slotIds[0];
-      if (first) {
-        ctx.setFocus(`${ns}/${first}`);
-        return;
+  const go = React.useCallback(
+    (d) => {
+      const n = peers[(idx + d + peers.length) % peers.length];
+      if (n) ctx.setFocus(`${sectionId}/${n}`);
+    },
+    [peers, idx, ctx, sectionId],
+  );
+  const goSection = React.useCallback(
+    (d) => {
+      // Sections whose artboards are all deleted have slotIds:[] — step past
+      // them to the next non-empty section so ↑/↓ doesn't dead-end.
+      const n = sectionOrder.length;
+      for (let i = 1; i < n; i++) {
+        const ns = sectionOrder[(((secIdx + d * i) % n) + n) % n];
+        const first = sectionMeta[ns] && sectionMeta[ns].slotIds[0];
+        if (first) {
+          ctx.setFocus(`${ns}/${first}`);
+          return;
+        }
       }
-    }
-  };
+    },
+    [sectionOrder, sectionMeta, secIdx, ctx],
+  );
 
   React.useEffect(() => {
     const k = (e) => {
+      // Don't hijack arrow keys when focus is in an input / editable text.
+      const t = e.target;
+      if (
+        t &&
+        (t.matches?.('input, textarea, select, [contenteditable="true"]') ||
+          t.isContentEditable)
+      ) {
+        return;
+      }
       if (e.key === 'ArrowLeft') {
         e.preventDefault();
         go(-1);
@@ -1418,7 +1489,7 @@ function DCFocusOverlay({ entry, sectionMeta, sectionOrder }) {
     };
     document.addEventListener('keydown', k);
     return () => document.removeEventListener('keydown', k);
-  });
+  }, [go, goSection]);
 
   const { width = 260, height = 480, children } = artboard.props;
   const [vp, setVp] = React.useState({ w: window.innerWidth, h: window.innerHeight });
@@ -1616,33 +1687,63 @@ function DCFocusOverlay({ entry, sectionMeta, sectionOrder }) {
         <Arrow dir="left" label="Previous artboard" onClick={() => go(-1)} />
         <Arrow dir="right" label="Next artboard" onClick={() => go(1)} />
 
-        {/* dots */}
+        {/* dots — small visual indicator, 24×24 invisible hit area for AA touch */}
         <div
+          role="tablist"
+          aria-label="Artboards in this section"
           onClick={(e) => e.stopPropagation()}
           style={{
             position: 'absolute',
-            bottom: 20,
+            bottom: 14,
             left: '50%',
             transform: 'translateX(-50%)',
             display: 'flex',
-            gap: 8,
+            gap: 4,
           }}
         >
-          {peers.map((p, i) => (
-            <button
-              key={p}
-              onClick={() => ctx.setFocus(`${sectionId}/${p}`)}
-              style={{
-                border: 'none',
-                padding: 0,
-                cursor: 'pointer',
-                width: 6,
-                height: 6,
-                borderRadius: 3,
-                background: i === idx ? '#fff' : 'rgba(255,255,255,.3)',
-              }}
-            />
-          ))}
+          {peers.map((p, i) => {
+            const peerLabel = ctx?.section?.(sectionId)?.labels?.[p] ?? p;
+            const isActive = i === idx;
+            return (
+              <button
+                key={p}
+                type="button"
+                role="tab"
+                aria-selected={isActive}
+                aria-current={isActive ? 'true' : undefined}
+                aria-label={`Go to artboard ${i + 1} of ${peers.length}: ${peerLabel}`}
+                onClick={() => ctx.setFocus(`${sectionId}/${p}`)}
+                style={{
+                  border: 'none',
+                  padding: 9,
+                  background: 'transparent',
+                  cursor: 'pointer',
+                  display: 'grid',
+                  placeItems: 'center',
+                  borderRadius: 12,
+                }}
+                onFocus={(e) => {
+                  e.currentTarget.style.outline = '2px solid #fff';
+                  e.currentTarget.style.outlineOffset = '2px';
+                }}
+                onBlur={(e) => {
+                  e.currentTarget.style.outline = '';
+                  e.currentTarget.style.outlineOffset = '';
+                }}
+              >
+                <span
+                  aria-hidden
+                  style={{
+                    display: 'block',
+                    width: 6,
+                    height: 6,
+                    borderRadius: 3,
+                    background: isActive ? '#fff' : 'rgba(255,255,255,.4)',
+                  }}
+                />
+              </button>
+            );
+          })}
         </div>
       </div>
     </TooltipProvider>,

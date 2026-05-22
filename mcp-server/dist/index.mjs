@@ -15590,7 +15590,8 @@ var WRITE_PATTERNS = [
   new RegExp(`^designs/${DESIGN_NAME}/(tweaks|comments|questions|overrides)\\.json$`),
   new RegExp(`^designs/${DESIGN_NAME}/agent-feedback\\.md$`),
   new RegExp(`^designs/${DESIGN_NAME}/agent-inbox\\.(json|md)$`),
-  new RegExp(`^designs/${DESIGN_NAME}/events\\.jsonl$`)
+  new RegExp(`^designs/${DESIGN_NAME}/events\\.jsonl$`),
+  new RegExp(`^designs/${DESIGN_NAME}/dom-snapshot\\.txt$`)
 ];
 var APPEND_PATTERNS = [new RegExp(`^designs/${DESIGN_NAME}/events\\.jsonl$`)];
 function readJson(file, fallback = null) {
@@ -15736,6 +15737,24 @@ function exportAgentFeedback(name) {
   fs.writeFileSync(designPath(name, "agent-feedback.md"), md, "utf8");
   return md;
 }
+function readDomSnapshot(name) {
+  const file = designPath(name, "dom-snapshot.txt");
+  if (!fs.existsSync(file)) {
+    return {
+      design: name,
+      available: false,
+      hint: "No snapshot yet \u2014 open the design in the host and enter Edit mode to seed one."
+    };
+  }
+  const stat = fs.statSync(file);
+  return {
+    design: name,
+    available: true,
+    updatedAt: stat.mtime.toISOString(),
+    bytes: stat.size,
+    snapshot: fs.readFileSync(file, "utf8")
+  };
+}
 function loadFeedbackBundle(name) {
   const commentsFile = readJson(designPath(name, "comments.json"), { comments: [] });
   const inboxPath = designPath(name, "agent-inbox.json");
@@ -15756,7 +15775,7 @@ function loadFeedbackBundle(name) {
 
 // mcp-server/index.mjs
 var server = new Server(
-  { name: "design-space", version: "0.2.0" },
+  { name: "design-space", version: "0.3.0" },
   { capabilities: { tools: {} } }
 );
 server.setRequestHandler(ListToolsRequestSchema, async () => ({
@@ -15843,6 +15862,14 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
       }
     },
     {
+      name: "design_space_dom_snapshot",
+      description: "Read the latest pretty-printed DOM snapshot for a design. Captures the current rendered structure (with React component names) so the agent can diff what the user sees against the source Design.jsx. The host writes this on Edit mode entry and after each override edit; if missing, ask the user to open the design and enter Edit mode.",
+      inputSchema: {
+        type: "object",
+        properties: { design: { type: "string" } }
+      }
+    },
+    {
       name: "design_space_comments_resolve",
       description: "Dismiss/resolve comments after handling. Omit commentIds to resolve all open comments.",
       inputSchema: {
@@ -15898,6 +15925,8 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
         const bundle = loadFeedbackBundle(design);
         return text({ inbox: bundle.agentInbox, markdown: bundle.agentInboxMd });
       }
+      case "design_space_dom_snapshot":
+        return text(readDomSnapshot(design));
       case "design_space_comments_resolve": {
         const ids = args?.commentIds || [];
         const next = resolveCommentsFs(design, ids);

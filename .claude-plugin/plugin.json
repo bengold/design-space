@@ -1,7 +1,7 @@
 {
   "name": "design-space",
   "description": "Local Claude Design host — edit designs/<name>/Design.jsx, read human comments/overrides, ask refinement questions, poll review events.",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "homepage": "https://github.com/bengold/design-space",
   "repository": "https://github.com/bengold/design-space",
   "license": "MIT",

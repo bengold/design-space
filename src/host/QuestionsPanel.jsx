@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { Check } from 'lucide-react';
 import { buildAgentFeedbackMarkdown } from '../../lib/comment-utils.mjs';
 import {
   Dialog,
@@ -147,7 +148,11 @@ function TextOptionsControl({ q, value, onChange }) {
             disabled={!other}
             className="mt-1.5"
           />
+          <FieldLabel htmlFor={`${q.id}-other-text`} className="sr-only">
+            Other option
+          </FieldLabel>
           <Textarea
+            id={`${q.id}-other-text`}
             placeholder="Other…"
             value={other}
             rows={1}
@@ -201,7 +206,11 @@ function TextOptionsControl({ q, value, onChange }) {
             className="mt-1.5"
           />
         </RadioGroup>
+        <FieldLabel htmlFor={`${q.id}-other-text`} className="sr-only">
+          Other option
+        </FieldLabel>
         <Textarea
+          id={`${q.id}-other-text`}
           placeholder="Other…"
           value={other}
           rows={1}
@@ -225,6 +234,7 @@ function SvgOptionsControl({ q, value, onChange }) {
     Array.isArray(value) ? value.map(String) : value != null ? [String(value)] : [],
   );
   const options = (q.options ?? []).map((svg, i) => ({ svg, index: i }));
+  const optionLabels = q.optionLabels ?? [];
 
   const toggle = (index) => {
     const key = String(index);
@@ -239,34 +249,51 @@ function SvgOptionsControl({ q, value, onChange }) {
   };
 
   return (
-    <div className="flex flex-wrap gap-2">
-      {options.map(({ svg, index }) => (
-        <button
-          key={index}
-          type="button"
-          onClick={() => toggle(index)}
-          className={cn(
-            'flex h-[72px] w-24 items-center justify-center overflow-hidden rounded-md border p-1.5 transition-colors',
-            selected.has(String(index))
-              ? 'border-primary bg-primary/5'
-              : 'border-input bg-background hover:bg-muted',
-          )}
-        >
-          <span className="flex max-h-full max-w-full" dangerouslySetInnerHTML={{ __html: svg }} />
-        </button>
-      ))}
+    <div
+      className="flex flex-wrap gap-2"
+      role={q.multi ? 'group' : 'radiogroup'}
+      aria-label={q.title}
+    >
+      {options.map(({ svg, index }) => {
+        const isSelected = selected.has(String(index));
+        const accessibleName = optionLabels[index] || `Option ${index + 1}`;
+        return (
+          <button
+            key={index}
+            type="button"
+            role={q.multi ? undefined : 'radio'}
+            aria-checked={q.multi ? undefined : isSelected}
+            aria-pressed={q.multi ? isSelected : undefined}
+            aria-label={accessibleName}
+            onClick={() => toggle(index)}
+            className={cn(
+              'flex h-[72px] w-24 items-center justify-center overflow-hidden rounded-md border p-1.5 transition-colors',
+              'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1',
+              isSelected
+                ? 'border-primary bg-primary/5'
+                : 'border-input bg-background hover:bg-muted',
+            )}
+          >
+            <span
+              aria-hidden
+              className="flex max-h-full max-w-full"
+              dangerouslySetInnerHTML={{ __html: svg }}
+            />
+          </button>
+        );
+      })}
     </div>
   );
 }
 
-function SliderControl({ q, value, onChange }) {
+function SliderControl({ q, value, onChange, ariaLabelledBy }) {
   const min = q.min ?? 0;
   const max = q.max ?? 100;
   const step = q.step ?? 1;
   const num = typeof value === 'number' ? value : (q.default ?? min);
   return (
     <div className="flex items-center gap-3 text-xs text-muted-foreground">
-      <span>{min}</span>
+      <span aria-hidden>{min}</span>
       <Slider
         min={min}
         max={max}
@@ -274,9 +301,13 @@ function SliderControl({ q, value, onChange }) {
         value={[num]}
         onValueChange={(vals) => onChange(Number(vals[0]))}
         className="flex-1"
+        aria-labelledby={ariaLabelledBy}
+        aria-valuetext={`${num} (min ${min}, max ${max})`}
       />
-      <span>{max}</span>
-      <strong className="min-w-10 text-right text-foreground">{num}</strong>
+      <span aria-hidden>{max}</span>
+      <strong aria-hidden className="min-w-10 text-right text-foreground">
+        {num}
+      </strong>
     </div>
   );
 }
@@ -307,7 +338,10 @@ function FileControl({ q, value, onChange, designName }) {
           <Spinner /> Uploading…
         </span>
       ) : value ? (
-        `✓ ${value}`
+        <span className="inline-flex items-center gap-1.5">
+          <Check className="size-4" aria-hidden />
+          {value}
+        </span>
       ) : (
         'Click to upload a file'
       )}
@@ -326,14 +360,16 @@ function FreeformControl({ value, onChange }) {
   );
 }
 
-function QuestionField({ q, value, onChange, designName }) {
+function QuestionField({ q, value, onChange, designName, labelId }) {
   switch (q.kind) {
     case 'text-options':
       return <TextOptionsControl q={q} value={value} onChange={onChange} />;
     case 'svg-options':
       return <SvgOptionsControl q={q} value={value} onChange={onChange} />;
     case 'slider':
-      return <SliderControl q={q} value={value} onChange={onChange} />;
+      return (
+        <SliderControl q={q} value={value} onChange={onChange} ariaLabelledBy={labelId} />
+      );
     case 'file':
       return <FileControl q={q} value={value} onChange={onChange} designName={designName} />;
     case 'freeform':
@@ -380,12 +416,13 @@ export default function QuestionsPanel({ designName, onAnswered, onDismiss }) {
       clearTimeout(timer);
       timer = setTimeout(() => onTimeoutRef.current?.(), IDLE_MS);
     };
-    window.addEventListener('mousemove', reset);
-    window.addEventListener('keydown', reset);
+    // pointerdown covers mouse + touch + pen; touchstart is a belt-and-braces
+    // for older iOS Safari where pointer events on the document don't fire.
+    const events = ['mousemove', 'keydown', 'pointerdown', 'touchstart'];
+    events.forEach((ev) => window.addEventListener(ev, reset, { passive: true }));
     return () => {
       clearTimeout(timer);
-      window.removeEventListener('mousemove', reset);
-      window.removeEventListener('keydown', reset);
+      events.forEach((ev) => window.removeEventListener(ev, reset));
     };
   }, [shouldShow]);
 
@@ -461,20 +498,26 @@ export default function QuestionsPanel({ designName, onAnswered, onDismiss }) {
 
         <div className="flex-1 overflow-y-auto px-6 pb-6">
           <FieldGroup className="gap-7">
-            {spec.questions.map((q) => (
-              <Field key={q.id}>
-                <FieldLabel className="text-sm font-semibold">{q.title}</FieldLabel>
-                {q.subtitle && (
-                  <FieldDescription className="!mt-0 -mb-1">{q.subtitle}</FieldDescription>
-                )}
-                <QuestionField
-                  q={q}
-                  value={answers[q.id]}
-                  onChange={(v) => setAnswer(q.id, v)}
-                  designName={designName}
-                />
-              </Field>
-            ))}
+            {spec.questions.map((q) => {
+              const labelId = `q-${q.id}-label`;
+              return (
+                <Field key={q.id}>
+                  <FieldLabel id={labelId} className="text-sm font-semibold">
+                    {q.title}
+                  </FieldLabel>
+                  {q.subtitle && (
+                    <FieldDescription className="!mt-0 -mb-1">{q.subtitle}</FieldDescription>
+                  )}
+                  <QuestionField
+                    q={q}
+                    value={answers[q.id]}
+                    onChange={(v) => setAnswer(q.id, v)}
+                    designName={designName}
+                    labelId={labelId}
+                  />
+                </Field>
+              );
+            })}
           </FieldGroup>
         </div>
 

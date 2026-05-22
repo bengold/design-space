@@ -55,11 +55,44 @@ export function resolveDsRef(ref) {
   return node;
 }
 
+// Cached fiber key — re-probe on each call until we find it (the React root
+// container has __reactContainer$, not __reactFiber$, so the first probe may
+// fail). Caching null would poison lookups for the session.
+let _fiberKey = null;
+function findFiber(el) {
+  if (!_fiberKey || !el[_fiberKey]) {
+    for (const k in el) {
+      if (k.startsWith('__reactFiber$')) {
+        _fiberKey = k;
+        break;
+      }
+    }
+  }
+  return _fiberKey ? el[_fiberKey] : null;
+}
+
+// Returns the nearest named React component above `el` (skips DOM tags).
+function reactName(el) {
+  let fiber = findFiber(el);
+  let hops = 0;
+  while (fiber && hops < 24) {
+    const t = fiber.type || fiber.elementType;
+    if (typeof t === 'function') {
+      const n = t.displayName || t.name;
+      if (n && n.length > 1) return n;
+    } else if (t && typeof t === 'object' && t.displayName) {
+      return t.displayName;
+    }
+    fiber = fiber.return;
+    hops += 1;
+  }
+  return null;
+}
+
 function reactChain(el) {
-  const fiberKey = Object.keys(el).find((k) => k.startsWith('__reactFiber$'));
-  if (!fiberKey) return null;
+  let fiber = findFiber(el);
+  if (!fiber) return null;
   const names = [];
-  let fiber = el[fiberKey];
   while (fiber) {
     const type = fiber.type;
     if (typeof type === 'string') names.unshift(type);
@@ -76,9 +109,8 @@ function reactChain(el) {
 // so it can edit without grepping. Strips the absolute project prefix when we
 // can spot a `designs/<name>` segment, so the output is repo-relative.
 function reactSource(el) {
-  const fiberKey = Object.keys(el).find((k) => k.startsWith('__reactFiber$'));
-  if (!fiberKey) return null;
-  let fiber = el[fiberKey];
+  let fiber = findFiber(el);
+  if (!fiber) return null;
   let hops = 0;
   while (fiber && hops < 24) {
     const src = fiber._debugSource;
@@ -98,6 +130,63 @@ function reactSource(el) {
   return null;
 }
 
+function trunc(s, n = 24) {
+  if (!s) return '';
+  const compact = String(s).trim().replace(/\s+/g, ' ');
+  return compact.length > n ? `${compact.slice(0, n)}…` : compact;
+}
+
+// Mid-truncate a SEP-joined path. Prefers keeping tail hops (closer to target)
+// when budget runs out — head provides global location, tail tells you what
+// you've actually picked.
+function clampMid(joined, sep, n) {
+  if (joined.length <= n) return joined;
+  const parts = joined.split(sep);
+  const head = [parts[0]];
+  const tail = [parts[parts.length - 1]];
+  let len = head[0].length + tail[0].length + sep.length + 1;
+  let hi = 1;
+  let ti = parts.length - 2;
+  while (hi <= ti) {
+    const t = parts[ti];
+    if (len + sep.length + t.length <= n) {
+      tail.unshift(t);
+      len += sep.length + t.length;
+      ti -= 1;
+      continue;
+    }
+    const h = parts[hi];
+    if (len + sep.length + h.length <= n) {
+      head.push(h);
+      len += sep.length + h.length;
+      hi += 1;
+      continue;
+    }
+    break;
+  }
+  if (hi > ti) return head.concat(tail).join(sep);
+  return head.concat('…', tail).join(sep);
+}
+
+function domHop(el, wantIndex) {
+  let s = el.tagName.toLowerCase();
+  if (el.id) s += `#${el.id}`;
+  if (el.className && typeof el.className === 'string') {
+    const cls = el.className.trim().split(/\s+/).slice(0, 2);
+    for (const c of cls) s += `.${trunc(c, 20)}`;
+  }
+  const screenLabel = el.getAttribute?.('data-screen-label');
+  if (screenLabel) s += `[screen="${trunc(screenLabel, 24)}"]`;
+  if (wantIndex) {
+    const p = el.parentElement;
+    if (p && p.children.length > 1) {
+      const idx = Array.prototype.indexOf.call(p.children, el);
+      s += `[${idx + 1}/${p.children.length}]`;
+    }
+  }
+  return s;
+}
+
 function domChain(el) {
   const parts = [];
   let node = el;
@@ -112,6 +201,53 @@ function domChain(el) {
     node = node.parentElement;
   }
   return parts.join(' > ');
+}
+
+// Claude Design-style multi-line block, mid-truncated at 100-char budget.
+// Captures: react component path, DOM hop path with screen-label markers,
+// text/aria/alt snippets, child tag inventory.
+function richDescriptorLines(el) {
+  const LINE_MAX = 100;
+  const SEP = ' › ';
+
+  const reactPath = [];
+  for (let a = el; a && a.nodeType === 1 && a !== document.documentElement; a = a.parentElement) {
+    const rn = reactName(a);
+    if (rn && rn !== reactPath[0]) reactPath.unshift(rn);
+  }
+
+  const domParts = [];
+  for (let d = el; d && d.nodeType === 1 && d !== document.documentElement; d = d.parentElement) {
+    domParts.unshift(domHop(d, d === el));
+  }
+
+  const textBits = [];
+  const txt = (el.innerText || el.textContent || '').trim().replace(/\s+/g, ' ');
+  if (txt) textBits.push(`"${trunc(txt, 60)}"`);
+  const aria = el.getAttribute?.('aria-label');
+  if (aria) textBits.push(`aria-label: "${trunc(aria, 40)}"`);
+  const alts = [];
+  if (el.getAttribute?.('alt')) alts.push(el.getAttribute('alt'));
+  const imgs = el.querySelectorAll?.('img[alt]') || [];
+  for (let i = 0; i < imgs.length && alts.length < 3; i += 1) {
+    const a2 = imgs[i].getAttribute('alt');
+    if (a2) alts.push(a2);
+  }
+  if (alts.length) textBits.push(`alt: "${trunc(alts.join(' · '), 40)}"`);
+
+  const kids = [];
+  for (const c of el.childNodes) {
+    if (c.nodeType === 1) kids.push(c.tagName.toLowerCase());
+    else if (c.nodeType === 3 && c.textContent.trim()) kids.push('text');
+    if (kids.length >= 12) break;
+  }
+
+  const lines = [];
+  if (reactPath.length) lines.push(`react:    ${trunc(reactPath.join(SEP), LINE_MAX)}`);
+  lines.push(`dom:      ${clampMid(domParts.join(SEP), SEP, LINE_MAX)}`);
+  if (textBits.length) lines.push(`text:     ${trunc(textBits.join(' · '), LINE_MAX)}`);
+  if (kids.length) lines.push(`children: ${trunc(kids.join(', '), LINE_MAX)}`);
+  return lines;
 }
 
 function nearestArtboard(el) {
@@ -141,23 +277,22 @@ export function describeElement(el) {
     artboardId: artboard?.artboardId || null,
     sectionId: artboard?.sectionId || null,
     artboardLabel: artboard?.label || null,
+    rich: richDescriptorLines(el),
   };
 }
 
 export function formatMentionedElement(ctx, commentText) {
-  const lines = [
-    '<mentioned-element>',
+  const head = [
     ctx.artboardId
       ? `artboard: ${ctx.sectionId || 'main'}/${ctx.artboardId}${ctx.artboardLabel ? ` (${ctx.artboardLabel})` : ''}`
       : null,
-    ctx.source ? `source: ${ctx.source}` : null,
-    ctx.react ? `react: ${ctx.react}` : null,
-    `dom: ${ctx.dom}`,
-    `id: ${ctx.ref}`,
-    commentText ? `comment: ${commentText}` : null,
-    '</mentioned-element>',
+    ctx.source ? `source:   ${ctx.source}` : null,
   ].filter(Boolean);
-  return lines.join('\n');
+  const body = ctx.rich?.length ? ctx.rich : [`dom:      ${ctx.dom}`];
+  const tail = [`id:       ${ctx.ref}`, commentText ? `comment:  ${commentText}` : null].filter(
+    Boolean,
+  );
+  return ['<mentioned-element>', ...head, ...body, ...tail, '</mentioned-element>'].join('\n');
 }
 
 export function isReviewTarget(el) {
@@ -214,4 +349,117 @@ export function collectTargetsInRect(rect) {
 
 export function formatMentionedElements(contexts, commentText) {
   return contexts.map((ctx) => formatMentionedElement(ctx, commentText)).join('\n\n');
+}
+
+// Scan the design surface for in-use colors/fonts. Capped at 500 elements for
+// perf — enough breadth for "what's already on this page?" without scanning
+// the host UI. Prefer `.design-canvas` so we don't pick up toolbar chrome;
+// raw pages omit that class, so fall back to `#root` only when no canvas
+// exists. Doing both at once would double-walk every canvas-page DOM tree.
+function scanRoots() {
+  const canvas = document.querySelectorAll('.design-canvas');
+  if (canvas.length) return Array.from(canvas);
+  const root = document.getElementById('root');
+  return root ? [root] : document.body ? [document.body] : [];
+}
+
+export function getDocumentColors() {
+  const seen = new Set();
+  const colors = [];
+  const props = ['color', 'backgroundColor', 'borderColor', 'fill', 'stroke'];
+  for (const root of scanRoots()) {
+    const els = root.querySelectorAll('*');
+    const max = Math.min(els.length, 500);
+    for (let i = 0; i < max; i += 1) {
+      const cs = window.getComputedStyle(els[i]);
+      for (const p of props) {
+        const v = cs[p];
+        if (!v || v === 'none' || v.includes('rgba(0, 0, 0, 0)')) continue;
+        if ((v.startsWith('rgb') || v.startsWith('#')) && !seen.has(v)) {
+          seen.add(v);
+          colors.push(v);
+        }
+      }
+      if (colors.length >= 24) return colors;
+    }
+  }
+  return colors;
+}
+
+export function getDocumentFonts() {
+  const seen = new Set();
+  const fonts = [];
+  for (const root of scanRoots()) {
+    const els = root.querySelectorAll('*');
+    const max = Math.min(els.length, 500);
+    for (let i = 0; i < max; i += 1) {
+      const ff = window.getComputedStyle(els[i]).fontFamily;
+      if (!ff) continue;
+      const first = ff
+        .split(',')[0]
+        .trim()
+        .replace(/^["']|["']$/g, '');
+      if (first && !seen.has(first)) {
+        seen.add(first);
+        fonts.push(first);
+      }
+      if (fonts.length >= 12) return fonts;
+    }
+  }
+  return fonts;
+}
+
+// Pretty-printed DOM serialization for before/after diffing. One tag per line,
+// children indented. data-ds-ref is stripped (session-local noise), script/
+// style bodies elided. Stamps React component names as data-react-component
+// during the walk; cleans up afterward.
+const SNAP_SKIP_ATTRS = new Set(['data-ds-ref', 'contenteditable']);
+const SNAP_ELIDE_TAGS = new Set(['SCRIPT', 'STYLE', 'NOSCRIPT']);
+
+function snapSerialize(el, depth, out, nameMap) {
+  const ind = '  '.repeat(depth);
+  const tag = el.tagName.toLowerCase();
+  let open = `${ind}<${tag}`;
+  for (const a of el.attributes) {
+    if (SNAP_SKIP_ATTRS.has(a.name)) continue;
+    const v = a.value.replace(/"/g, '&quot;').replace(/\n/g, ' ');
+    open += ` ${a.name}="${v}"`;
+  }
+  const rn = nameMap.get(el);
+  if (rn) open += ` data-react-component="${rn}"`;
+  open += '>';
+  out.push(open);
+  if (SNAP_ELIDE_TAGS.has(el.tagName)) {
+    out.push(`${ind}  …`);
+  } else {
+    for (const c of el.childNodes) {
+      if (c.nodeType === 1) snapSerialize(c, depth + 1, out, nameMap);
+      else if (c.nodeType === 3) {
+        const t = c.textContent.replace(/\s+/g, ' ').trim();
+        if (t) out.push(`${ind}  ${t}`);
+      }
+    }
+  }
+  out.push(`${ind}</${tag}>`);
+}
+
+export function snapshotDom() {
+  const roots = scanRoots();
+  if (!roots.length) return '';
+  // Build a name map without touching the DOM. Cap at 4000 nodes — past that
+  // the fiber walk dominates and a labeled snapshot stops being diff-useful
+  // anyway. Stamping attributes here would fire body MutationObservers ~2*N
+  // times (set + unset) and race React commits on slow snapshots.
+  const nameMap = new Map();
+  for (const root of roots) {
+    const all = root.querySelectorAll('*');
+    const n = Math.min(all.length, 4000);
+    for (let i = 0; i < n; i += 1) {
+      const rn = reactName(all[i]);
+      if (rn) nameMap.set(all[i], rn);
+    }
+  }
+  const lines = [];
+  for (const root of roots) snapSerialize(root, 0, lines, nameMap);
+  return lines.join('\n');
 }
