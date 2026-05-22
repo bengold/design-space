@@ -201,7 +201,7 @@ function shorthandPreview(styles, keys, fallbackUnit = 'px') {
 // ─── field shell ──────────────────────────────────────────────────────────────
 
 const ROW_CLS =
-  'group/row flex h-9 items-center gap-2 rounded-lg border border-input bg-background px-3 text-sm focus-within:ring-2 focus-within:ring-ring focus-within:border-ring';
+  'group/row flex h-9 items-center gap-2 rounded-md border border-input bg-background px-3 text-sm focus-within:ring-2 focus-within:ring-ring focus-within:border-ring';
 const ROW_INVALID_CLS = 'border-destructive ring-1 ring-destructive/30';
 
 // Reset affordance — appears on row hover/focus. Calling onReset should emit
@@ -1459,7 +1459,7 @@ export function EditPanel({
           {/* aria-live on the wrapper, not the h2 itself, so the heading swap
               ("Edit element" ↔ "Edit canvas") is announced politely. */}
           <div className="min-w-0 flex-1" aria-live="polite">
-            <h2 className="text-sm font-semibold text-foreground">
+            <h2 className="text-sm font-semibold">
               {el ? 'Edit element' : 'Edit canvas'}
             </h2>
             {el && (

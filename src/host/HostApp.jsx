@@ -57,14 +57,29 @@ function ModePillButton({ active, onClick, title, children, badge, dot }) {
   );
 }
 
-// Tooltip-scoped <kbd>. Assumes a dark popover surface (TooltipContent), so the
-// border/bg use background/foreground inverses. Don't use outside tooltips —
-// inline kbd elsewhere should pick a "muted" surface variant.
+// Two flavors so kbd chips read as one type family across surfaces:
+// <TooltipKbd> assumes a dark popover surface (TooltipContent) and uses
+// background/foreground inverses; <KbdHint> sits inside light dropdown
+// menus / footer hints (muted-on-light).
 function TooltipKbd({ children }) {
   return (
     <kbd
       data-slot="kbd"
       className="ml-1 inline-flex h-4 items-center rounded-sm border border-background/25 bg-background/10 px-1 font-mono text-[10px] font-medium leading-none"
+    >
+      {children}
+    </kbd>
+  );
+}
+
+function KbdHint({ children, className }) {
+  return (
+    <kbd
+      data-slot="kbd"
+      className={cn(
+        'inline-flex h-4 items-center rounded-sm border border-border bg-muted px-1 font-mono text-[10px] font-medium leading-none text-muted-foreground',
+        className,
+      )}
     >
       {children}
     </kbd>
@@ -230,13 +245,9 @@ export default function HostApp() {
                   })}
                   <div className="mt-1 flex items-center gap-1 border-t px-2 pt-1.5 pb-0.5 text-[10px]">
                     <span className="text-muted-foreground">Previous</span>
-                    <kbd className="inline-flex h-4 items-center rounded-sm border border-border bg-muted px-1 font-mono text-[10px] leading-none">
-                      ⌘[
-                    </kbd>
+                    <KbdHint>⌘[</KbdHint>
                     <span className="text-muted-foreground">· Next</span>
-                    <kbd className="inline-flex h-4 items-center rounded-sm border border-border bg-muted px-1 font-mono text-[10px] leading-none">
-                      ⌘]
-                    </kbd>
+                    <KbdHint>⌘]</KbdHint>
                   </div>
                 </DropdownMenuContent>
               </DropdownMenu>
@@ -275,7 +286,7 @@ export default function HostApp() {
                   <DropdownMenuItem onClick={bridge.fitToScreen}>
                     <Maximize2 className="size-3.5" />
                     <span>Fit to screen</span>
-                    <span className="ml-auto text-[10px] text-muted-foreground">⌘1</span>
+                    <KbdHint className="ml-auto">⌘1</KbdHint>
                   </DropdownMenuItem>
                   <DropdownMenuSeparator />
                   {bridge.zoomPresets.map((z) => {
@@ -285,7 +296,7 @@ export default function HostApp() {
                         key={z}
                         onClick={() => bridge.setFrameZoom(z)}
                         data-active={isActive || undefined}
-                        className="data-[active]:bg-muted"
+                        className="data-[active]:bg-muted data-[active]:font-medium"
                       >
                         <span className="flex w-4 items-center justify-center">
                           {isActive && <Check className="size-3.5 text-foreground" />}

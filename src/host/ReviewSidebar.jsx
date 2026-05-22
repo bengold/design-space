@@ -31,7 +31,7 @@ function StatusBadge({ status }) {
     );
   }
   return (
-    <Badge className="text-[10px] font-medium" variant="default">
+    <Badge variant="default" className="text-[10px] font-medium">
       Open
     </Badge>
   );
