@@ -135,7 +135,7 @@ export default function ReviewSidebar({
   const unsentCount = open.filter((c) => !c.sentToAgent).length;
 
   return (
-    <aside className="ds-review-ui flex w-80 flex-shrink-0 flex-col border-l border-border bg-sidebar text-sidebar-foreground">
+    <aside className="ds-review-ui flex h-full w-80 flex-shrink-0 flex-col border-l border-border bg-sidebar text-sidebar-foreground shadow-xl">
       <div className="px-4 py-3 border-b border-border">
         <div className="flex items-center justify-between">
           <strong className="text-sm">Comments</strong>

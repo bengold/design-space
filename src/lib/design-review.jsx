@@ -417,13 +417,85 @@ function CommentPinLayer({ comments, highlighted, onSelect }) {
   });
 }
 
-function ModeHint({ commentMode }) {
-  const text = commentMode
-    ? '↑ parent · ↓ child · ←→ siblings · Shift+click multi · drag box · Enter to comment'
-    : 'Click element to inspect · ↑↓←→ navigate · live preview · Apply to save';
+function ModeHint({ commentMode, hasSelection }) {
+  // Tethered to the bottom-right of the canvas viewport (not centered + floating)
+  // so the eye associates it with the active mode rather than a disembodied
+  // chip. Reveal progressively: 1–2 primary hints inline based on whether the
+  // user has selected an element; expand to the full chord list on hover.
+  const [expanded, setExpanded] = useState(false);
+
+  let primary;
+  if (commentMode) {
+    primary = hasSelection
+      ? ['Enter', 'to comment', '·', '↑↓←→', 'walk tree']
+      : ['Click element', '·', 'drag box', 'to select'];
+  } else {
+    primary = hasSelection
+      ? ['Edit in panel', '·', '↑↓←→', 'walk tree']
+      : ['Click element', 'to inspect'];
+  }
+
+  const allChords = commentMode
+    ? [
+        ['↑', 'parent'],
+        ['↓', 'child'],
+        ['←→', 'siblings'],
+        ['Shift+click', 'multi-select'],
+        ['drag', 'marquee select'],
+        ['Enter', 'add comment'],
+      ]
+    : [
+        ['Click', 'inspect element'],
+        ['↑↓←→', 'walk tree'],
+        ['live preview', 'as you type'],
+      ];
+
   return (
-    <div className="ds-review-ui fixed bottom-5 left-1/2 z-40 -translate-x-1/2 rounded-full border border-border bg-background/95 px-4 py-2 text-xs text-foreground shadow-md pointer-events-none">
-      {text}
+    <div
+      className="ds-review-ui fixed bottom-4 left-4 z-40"
+      onMouseEnter={() => setExpanded(true)}
+      onMouseLeave={() => setExpanded(false)}
+    >
+      <div className="flex flex-col items-start gap-1.5">
+        {expanded && (
+          <div
+            role="group"
+            aria-label="Keyboard shortcuts"
+            className="flex flex-col gap-1 rounded-lg border border-border bg-background/95 px-3 py-2 text-[11px] text-muted-foreground shadow-md backdrop-blur-sm"
+          >
+            {allChords.map(([k, label]) => (
+              <div key={k} className="flex items-center gap-2">
+                <kbd className="rounded border border-border bg-muted px-1.5 py-0.5 font-mono text-[10px] text-foreground">
+                  {k}
+                </kbd>
+                <span>{label}</span>
+              </div>
+            ))}
+          </div>
+        )}
+        <div className="flex items-center gap-1.5 rounded-full border border-border bg-background/95 px-3 py-1.5 text-[11px] text-muted-foreground shadow-sm backdrop-blur-sm">
+          {primary.map((tok, i) =>
+            tok === '·' ? (
+              <span key={i} aria-hidden className="opacity-40">
+                ·
+              </span>
+            ) : /^[↑↓←→]+$|^Enter$|^Shift\+click$/.test(tok) ? (
+              <kbd
+                key={i}
+                className="rounded border border-border bg-muted px-1.5 py-0.5 font-mono text-[10px] text-foreground"
+              >
+                {tok}
+              </kbd>
+            ) : (
+              <span key={i}>{tok}</span>
+            ),
+          )}
+          <span aria-hidden className="ml-1 opacity-40">
+            ·
+          </span>
+          <span className="text-muted-foreground/60">hover for more</span>
+        </div>
+      </div>
     </div>
   );
 }
@@ -818,7 +890,11 @@ export function DesignReviewShell({ designName, children }) {
     [applyOverride],
   );
 
-  const { overlay: selectionOverlay, clearSelection } = useSelectionPicker({
+  const {
+    overlay: selectionOverlay,
+    selected: selectedEls,
+    clearSelection,
+  } = useSelectionPicker({
     active: pickMode,
     multiSelect: commentMode,
     onPick,
@@ -905,7 +981,9 @@ export function DesignReviewShell({ designName, children }) {
         }}
       />
 
-      {showHint && <ModeHint commentMode={commentMode} />}
+      {showHint && (
+        <ModeHint commentMode={commentMode} hasSelection={selectedEls.length > 0} />
+      )}
     </ReviewCtx.Provider>
   );
 }
