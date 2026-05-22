@@ -151,7 +151,11 @@ export default function ReviewSidebar({
         <div className="flex items-center justify-between">
           <h2 className="text-sm font-semibold">Comments</h2>
           {open.length > 0 && (
-            <Badge variant="secondary" className="text-[10px]" aria-label={`${open.length} open comments`}>
+            <Badge
+              variant="secondary"
+              className="text-[10px]"
+              aria-label={`${open.length} open comments`}
+            >
               {open.length} open
             </Badge>
           )}
