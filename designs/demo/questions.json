@@ -1,7 +1,42 @@
 {
-  "title": "Refinement questions",
-  "status": "idle",
+  "title": "What should we work on?",
+  "status": "pending",
   "trigger": null,
-  "questions": [],
+  "questions": [
+    {
+      "id": "focus",
+      "title": "Where should I focus this session?",
+      "type": "text-options",
+      "options": [
+        "Review & commit the uncommitted host changes",
+        "Promote demo overrides into Design.jsx",
+        "Start a new design",
+        "Iterate on the existing demo design",
+        "Other (tell me below)"
+      ],
+      "kind": "text-options"
+    },
+    {
+      "id": "fidelity",
+      "title": "If we're touching designs, what fidelity?",
+      "subtitle": "Helps me decide how polished to make things",
+      "type": "text-options",
+      "options": [
+        "Quick sketch / wireframe",
+        "Mid-fi with real type & color",
+        "Polished, ship-ready",
+        "Doesn't apply"
+      ],
+      "kind": "text-options"
+    },
+    {
+      "id": "notes",
+      "title": "Anything else I should know?",
+      "subtitle": "Constraints, references, vibes — whatever helps",
+      "type": "freeform",
+      "kind": "text-options",
+      "options": []
+    }
+  ],
   "answers": {}
 }

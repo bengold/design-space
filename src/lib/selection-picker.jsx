@@ -271,6 +271,9 @@ export function useSelectionPicker({
         justDraggedRef.current = false;
         return;
       }
+      // Let explicit non-commentable UI (artboard chrome controls, etc.)
+      // handle clicks normally even while picker capture is active.
+      if (e.target.closest('[data-noncommentable]')) return;
       const te = textEditRef.current;
       if (te.activeEl) {
         // While editing, clicks outside the editing element commit and exit.
@@ -298,6 +301,7 @@ export function useSelectionPicker({
     const onDblClick = (e) => {
       const te = textEditRef.current;
       if (te.activeEl) return;
+      if (e.target.closest('[data-noncommentable]')) return;
       if (e.target.closest('.ds-review-ui')) return;
       const el = pickWithDrill(e.clientX, e.clientY, selectedRef.current[0] || null);
       if (!el || !onTextEditCommit) return;

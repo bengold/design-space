@@ -41,7 +41,11 @@ function CommentRow({ comment, selected, onSelect, onSend, onDelete, dimmed }) {
   const status = statusOf(comment);
   const ctx = comment.contexts?.[0] || comment.context;
   const canSend = status === 'open';
-  const canDelete = status !== 'resolved';
+  // Resolved rows show a "Dismiss" action (same path: removes from comments.json
+  // via onDeleteComment) so users can clear the resolved list from the sidebar.
+  const isResolved = status === 'resolved';
+  const canDelete = !!onDelete;
+  const deleteLabel = isResolved ? 'Dismiss' : 'Delete';
   const excerpt = (comment.text || '').slice(0, 80) || '(empty)';
   return (
     <article
@@ -80,7 +84,8 @@ function CommentRow({ comment, selected, onSelect, onSend, onDelete, dimmed }) {
             <Button
               variant="ghost"
               size="icon-xs"
-              aria-label="Delete"
+              aria-label={deleteLabel}
+              title={deleteLabel}
               onClick={() => onDelete?.(comment.id)}
             >
               <Trash2 />
@@ -155,7 +160,7 @@ export default function ReviewSidebar({
   return (
     <aside
       aria-label="Comments"
-      className="ds-review-ui flex h-full w-80 flex-shrink-0 flex-col border-l border-border bg-sidebar text-sidebar-foreground shadow-xl"
+      className="ds-review-ui flex h-full w-[340px] flex-shrink-0 flex-col border-l border-border bg-sidebar text-sidebar-foreground shadow-xl sm:w-[360px]"
     >
       <div className="px-4 py-3 border-b border-border">
         <div className="flex items-center justify-between">

@@ -162,7 +162,7 @@ export function readStyleSnapshot(el, existing = {}) {
 export function stylesToCssRule(ref, { styles = {}, cssText = '' }) {
   const decl = Object.entries(styles)
     .filter(([, v]) => v != null && String(v).trim() !== '')
-    .map(([k, v]) => `${camelToKebab(k)}:${v}`)
+    .map(([k, v]) => `${camelToKebab(k)}:${v} !important`)
     .join(';');
   const extra = cssText?.trim() ? cssText.trim().replace(/\s+/g, ' ') : '';
   const body = [decl, extra].filter(Boolean).join(';');

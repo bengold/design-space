@@ -14,7 +14,13 @@ import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { cn } from '@/lib/utils';
 
 import { stylesToCssRule } from './css-property-schema.js';
-import { ensureDsRef, getDocumentColors, getDocumentFonts } from './elementContext.js';
+import {
+  ensureDsRef,
+  findReactComponentElements,
+  getDocumentColors,
+  getDocumentFonts,
+  getReactComponentDescriptor,
+} from './elementContext.js';
 import {
   buildFontOptions,
   ensureGoogleFontLoaded,
@@ -559,7 +565,7 @@ function ColorRow({ label, value, onChange, onReset, overridesDep, full = false 
         />
         <PopoverContent
           align="end"
-          className="w-auto p-3"
+          className="w-56 p-3"
           role="dialog"
           aria-label={`${label} color picker — use the hex input for keyboard entry`}
         >
@@ -669,7 +675,17 @@ function SpacingBlock({ label, keyForSide, valueFor, setStyle, unit = 'px' }) {
 // Render-side live preview. The CSS rule injection is harmless — it has no
 // effect when styles is empty. The textContent mutation is destructive (it can
 // wipe child elements), so it only fires when textChanged === true.
-function useLivePreview(ref, el, styles, cssText, textContent, textChanged) {
+function stylesToSelectorRule(selector, { styles = {}, cssText = '' }) {
+  const decl = Object.entries(styles)
+    .filter(([, v]) => v != null && String(v).trim() !== '')
+    .map(([k, v]) => `${k.replace(/[A-Z]/g, (m) => `-${m.toLowerCase()}`)}:${v} !important`)
+    .join(';');
+  const extra = cssText?.trim() ? cssText.trim().replace(/\s+/g, ' ') : '';
+  const body = [decl, extra].filter(Boolean).join(';');
+  return body ? `${selector}{${body}}` : '';
+}
+
+function useLivePreview(ref, el, styles, cssText, textContent, textChanged, selector = null) {
   const originalText = useRef(null);
 
   useEffect(() => {
@@ -700,7 +716,13 @@ function useLivePreview(ref, el, styles, cssText, textContent, textChanged) {
     }
   }, [el, textContent, textChanged]);
 
-  const rule = useMemo(() => stylesToCssRule(ref, { styles, cssText }), [ref, styles, cssText]);
+  const rule = useMemo(
+    () =>
+      selector
+        ? stylesToSelectorRule(selector, { styles, cssText })
+        : stylesToCssRule(ref, { styles, cssText }),
+    [ref, selector, styles, cssText],
+  );
   if (!rule) return null;
   return <style data-ds-edit-preview>{rule}</style>;
 }
@@ -1001,12 +1023,18 @@ function PositionRow({ el, styleOf, setStyle }) {
   );
 }
 
-function EditPanelBody({ el, overrides, onApply, onClose }) {
+function EditPanelBody({ el, overrides, componentOverrides = {}, onApply, onApplyComponent, onClose }) {
   const ref = ensureDsRef(el);
+  const component = useMemo(() => getReactComponentDescriptor(el), [el]);
+  const componentKey = component?.key || null;
+  const [scope, setScope] = useState('element');
+  const activeOverrides = scope === 'component' && componentKey ? componentOverrides : overrides;
+  const activeRef = scope === 'component' && componentKey ? componentKey : ref;
+
   // Capture `overrides` via ref so init only fires on element change — not when
   // our own auto-persist updates the overrides map (which would re-init in a loop).
-  const overridesRef = useRef(overrides);
-  overridesRef.current = overrides;
+  const overridesRef = useRef(activeOverrides);
+  overridesRef.current = activeOverrides;
 
   // `styles` holds ONLY user-edited deltas — never the computed snapshot.
   const [styles, setStyles] = useState({});
@@ -1014,7 +1042,11 @@ function EditPanelBody({ el, overrides, onApply, onClose }) {
   const initialized = useRef(false);
 
   useEffect(() => {
-    const initial = overridesRef.current[ref] || {};
+    if (scope === 'component' && !componentKey) setScope('element');
+  }, [scope, componentKey]);
+
+  useEffect(() => {
+    const initial = overridesRef.current[activeRef] || {};
     setStyles(initial.styles || {});
     setCssText(initial.cssText || '');
     initialized.current = false;
@@ -1022,7 +1054,7 @@ function EditPanelBody({ el, overrides, onApply, onClose }) {
       initialized.current = true;
     });
     return () => cancelAnimationFrame(id);
-  }, [el, ref]);
+  }, [el, ref, activeRef, scope]);
 
   const cssError = useMemo(() => validateCssText(cssText), [cssText]);
 
@@ -1033,13 +1065,18 @@ function EditPanelBody({ el, overrides, onApply, onClose }) {
   useEffect(() => {
     if (!initialized.current) return;
     const t = setTimeout(() => {
-      onApply(ref, {
+      const patch = {
         styles,
         cssText: cssText.trim() || undefined,
-      });
+      };
+      if (scope === 'component' && componentKey && component) {
+        onApplyComponent(componentKey, component, patch);
+      } else {
+        onApply(ref, patch);
+      }
     }, 250);
     return () => clearTimeout(t);
-  }, [ref, styles, cssText, onApply]);
+  }, [ref, scope, componentKey, component, styles, cssText, onApply, onApplyComponent]);
 
   const setStyle = (key, value) => {
     setStyles((s) => {
@@ -1055,7 +1092,18 @@ function EditPanelBody({ el, overrides, onApply, onClose }) {
   // the input; `styles` is what gets persisted.
   const styleOf = (key) => styles[key] ?? readComputed(el, key);
 
-  const previewStyle = useLivePreview(ref, el, styles, cssText);
+  useEffect(() => {
+    if (scope !== 'component' || !component) return undefined;
+    const matches = findReactComponentElements(component);
+    for (const match of matches) match.setAttribute('data-ds-component-preview', '');
+    return () => {
+      for (const match of matches) match.removeAttribute('data-ds-component-preview');
+    };
+  }, [scope, component]);
+
+  const previewSelector =
+    scope === 'component' && component ? '[data-ds-component-preview]' : null;
+  const previewStyle = useLivePreview(ref, el, styles, cssText, null, false, previewSelector);
 
   // Both font + color scans walk the live DOM, so they must recompute when any
   // override (anywhere in the doc) changes — not just when `el` changes.
@@ -1067,7 +1115,7 @@ function EditPanelBody({ el, overrides, onApply, onClose }) {
   // persisted override targeting that section's keys. These useMemos only seed
   // initial state — SectionCollapsible owns its own open state thereafter, so
   // user toggles aren't overwritten when `styles` updates.
-  const persistedStyles = (overrides[ref] && overrides[ref].styles) || null;
+  const persistedStyles = (activeOverrides[activeRef] && activeOverrides[activeRef].styles) || null;
   const openTypography = useMemo(
     () => hasOverrideForSection('Typography', styles, persistedStyles),
     [styles, persistedStyles],
@@ -1152,6 +1200,50 @@ function EditPanelBody({ el, overrides, onApply, onClose }) {
       {/* Scrollable body */}
       <ScrollArea className="min-h-0 flex-1">
         <div className="flex flex-col gap-4 p-4">
+          <section className="flex flex-col gap-2 rounded-lg border border-border bg-muted/30 p-3">
+            <div className="flex items-center justify-between gap-3">
+              <div className="min-w-0">
+                <SectionLabel>Scope</SectionLabel>
+                <p className="truncate px-1 text-[11px] text-muted-foreground">
+                  {scope === 'component' && component
+                    ? `All ${component.name} ${component.tag} instances`
+                    : 'Only this selected element'}
+                </p>
+              </div>
+              <ToggleGroup
+                type="single"
+                size="sm"
+                spacing={0}
+                variant="outline"
+                value={scope}
+                onValueChange={(next) => {
+                  if (!next) return;
+                  if (next === 'component' && !componentKey) return;
+                  setScope(next);
+                }}
+                className="h-7 shrink-0"
+              >
+                <ToggleGroupItem
+                  value="element"
+                  size="sm"
+                  variant="outline"
+                  className="h-7 px-3 text-[11px] font-medium"
+                >
+                  Element
+                </ToggleGroupItem>
+                <ToggleGroupItem
+                  value="component"
+                  size="sm"
+                  variant="outline"
+                  disabled={!componentKey}
+                  className="h-7 px-3 text-[11px] font-medium"
+                >
+                  Component
+                </ToggleGroupItem>
+              </ToggleGroup>
+            </div>
+          </section>
+
           <SectionCollapsible title="Typography" defaultOpen={openTypography} preview={typoPreview}>
             <SelectRow
               label="Font"
@@ -1576,8 +1668,10 @@ export function EditPanel({
   open,
   el,
   overrides,
+  componentOverrides,
   canvasStyles,
   onApply,
+  onApplyComponent,
   onApplyCanvas,
   onClearSelection,
   onClose,
@@ -1687,7 +1781,14 @@ export function EditPanel({
         </div>
 
         {el ? (
-          <EditPanelBody el={el} overrides={overrides} onApply={onApply} onClose={handleClose} />
+          <EditPanelBody
+            el={el}
+            overrides={overrides}
+            componentOverrides={componentOverrides}
+            onApply={onApply}
+            onApplyComponent={onApplyComponent}
+            onClose={handleClose}
+          />
         ) : (
           <CanvasPanelBody canvasStyles={canvasStyles} onApplyCanvas={onApplyCanvas} />
         )}

@@ -274,7 +274,7 @@ export default function HostApp() {
           {/* ── Cluster 3: View (unified zoom dropdown with Fit) ────────── */}
           {bridge.canvasPresent && (
             <>
-              {activeDesign && <Separator orientation="vertical" className="!h-5" />}
+              {activeDesign && <Separator orientation="vertical" className="!h-5 !self-center" />}
               <DropdownMenu>
                 <Tooltip>
                   <TooltipTrigger
@@ -325,7 +325,7 @@ export default function HostApp() {
           {/* ── Cluster 4: Modes (segmented pill — exclusive) ───────────── */}
           {(bridge.reviewReady || bridge.tweaksAvailable) && (
             <>
-              <Separator orientation="vertical" className="!h-5" />
+              <Separator orientation="vertical" className="!h-5 !self-center" />
               <ModePill>
                 {bridge.reviewReady && (
                   <>
@@ -430,27 +430,20 @@ export default function HostApp() {
             style={{ background: '#f0eee9' }}
           />
           {sidebarOpen && (
-            <>
-              {/* subtle backdrop fade on the canvas edge under the sidebar */}
-              <div
-                aria-hidden
-                className="pointer-events-none absolute top-0 right-80 bottom-0 w-12 bg-gradient-to-r from-transparent to-background/70"
+            <div className="absolute top-0 right-0 bottom-0 flex w-[340px] sm:w-[360px]">
+              <ReviewSidebar
+                designName={activeDesign}
+                comments={bridge.comments}
+                selectedCommentId={selectedCommentId}
+                onSelectComment={selectComment}
+                onCommentsChange={handleCommentsChange}
+                onCopyExport={copyAgentContext}
+                onSendComment={bridge.requestSendComment}
+                onDeleteComment={bridge.requestDeleteComment}
+                onSendAllUnsent={bridge.requestSendAllUnsent}
+                onOpen={handleSidebarOpen}
               />
-              <div className="absolute top-0 right-0 bottom-0 flex w-80">
-                <ReviewSidebar
-                  designName={activeDesign}
-                  comments={bridge.comments}
-                  selectedCommentId={selectedCommentId}
-                  onSelectComment={selectComment}
-                  onCommentsChange={handleCommentsChange}
-                  onCopyExport={copyAgentContext}
-                  onSendComment={bridge.requestSendComment}
-                  onDeleteComment={bridge.requestDeleteComment}
-                  onSendAllUnsent={bridge.requestSendAllUnsent}
-                  onOpen={handleSidebarOpen}
-                />
-              </div>
-            </>
+            </div>
           )}
         </div>
 

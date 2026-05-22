@@ -316,27 +316,59 @@ function DesignCanvas({ children, minScale, maxScale, style }) {
     return () => clearTimeout(t);
   }, [state.sections]);
 
-  // Build registries synchronously from the visible children so FocusOverlay
-  // can read them in the same render. Skipped entirely for raw pages — they
-  // bypass the canvas and have no DCSections to track.
+  // Section registry — each DCSection reports its raw artboards into here
+  // via useLayoutEffect on mount/update. We can't walk `renderedChildren`
+  // for DCSections directly because pages frequently wrap them in custom
+  // components (e.g. <OnboardingPage>), which the JSX walk can't see
+  // through. Latest element refs live in `sectionsRef` (no re-render); only
+  // id/meta changes bump `registrationsVersion` to trigger derivation.
+  const sectionsRef = React.useRef({}); // { sid: { meta: {title, subtitle}, artboards: [[aid, ab], ...] } }
+  const sectionOrderRef = React.useRef([]); // sid insertion order
+  const [registrationsVersion, setRegistrationsVersion] = React.useState(0);
+
+  const registerSection = React.useCallback((sid, meta, artboards) => {
+    const prev = sectionsRef.current[sid];
+    const newIdsStr = artboards.map(([k]) => k).join('\x1f');
+    const oldIdsStr = prev?.artboards.map(([k]) => k).join('\x1f');
+    // Always refresh element refs so the focus overlay renders the latest
+    // children (tweaks, hot-reload, etc.).
+    sectionsRef.current[sid] = { meta, artboards };
+    if (!sectionOrderRef.current.includes(sid)) sectionOrderRef.current.push(sid);
+    // Only force a re-render when id-set or meta changed — element identity
+    // alone changes every render and would loop.
+    if (
+      !prev ||
+      oldIdsStr !== newIdsStr ||
+      prev.meta.title !== meta.title ||
+      prev.meta.subtitle !== meta.subtitle
+    ) {
+      setRegistrationsVersion((v) => v + 1);
+    }
+  }, []);
+
+  const unregisterSection = React.useCallback((sid) => {
+    if (!(sid in sectionsRef.current)) return;
+    delete sectionsRef.current[sid];
+    sectionOrderRef.current = sectionOrderRef.current.filter((s) => s !== sid);
+    setRegistrationsVersion((v) => v + 1);
+  }, []);
+
+  // Derive registry / sectionMeta / sectionOrder from the live registrations
+  // and the persisted hidden/order/title in `state.sections`. Skipped on raw
+  // pages — they have no DCSections.
   const registry = {}; // slotId -> { sectionId, artboard }
   const sectionMeta = {}; // sectionId -> { title, subtitle, slotIds[] }
   const sectionOrder = [];
-  if (!isRawPage)
-    dcFlatten(renderedChildren).forEach((sec) => {
-      if (!sec || sec.type !== DCSection) return;
-      const sid = sec.props.id ?? sec.props.title;
-      if (!sid) return;
+  if (!isRawPage) {
+    // registrationsVersion read for re-derivation; underlying data lives in
+    // refs so we can keep element identity fresh without a render loop.
+    void registrationsVersion;
+    for (const sid of sectionOrderRef.current) {
+      const reg = sectionsRef.current[sid];
+      if (!reg) continue;
       sectionOrder.push(sid);
       const persisted = state.sections[sid] || {};
-      const abs = [];
-      dcFlatten(sec.props.children).forEach((ab) => {
-        if (!ab || ab.type !== DCArtboard) return;
-        const aid = ab.props.id ?? ab.props.label;
-        if (aid) abs.push([aid, ab]);
-      });
-      // hidden is scoped to one source revision — when the agent regenerates
-      // (artboard-ID set changes), prior deletes don't apply to new content.
+      const abs = reg.artboards;
       const srcKey = abs.map(([k]) => k).join('\x1f');
       const hidden = persisted.srcKey === srcKey ? persisted.hidden || [] : [];
       const srcIds = [];
@@ -347,11 +379,12 @@ function DesignCanvas({ children, minScale, maxScale, style }) {
       });
       const kept = (persisted.order || []).filter((k) => srcIds.includes(k));
       sectionMeta[sid] = {
-        title: persisted.title ?? sec.props.title,
-        subtitle: sec.props.subtitle,
+        title: persisted.title ?? reg.meta.title,
+        subtitle: reg.meta.subtitle,
         slotIds: [...kept, ...srcIds.filter((k) => !kept.includes(k))],
       };
-    });
+    }
+  }
 
   const api = React.useMemo(
     () => ({
@@ -366,8 +399,10 @@ function DesignCanvas({ children, minScale, maxScale, style }) {
           },
         })),
       setFocus: (slotId) => setState((s) => ({ ...s, focus: slotId })),
+      registerSection,
+      unregisterSection,
     }),
-    [state],
+    [state, registerSection, unregisterSection],
   );
 
   // Esc exits focus; any outside pointerdown commits an in-progress rename.
@@ -848,6 +883,24 @@ function DCSection({ id, title, subtitle, children, gap = 48 }) {
   const artboards = all.filter((c) => c && c.type === DCArtboard);
   const rest = all.filter((c) => !(c && c.type === DCArtboard));
   const sec = (ctx && sid && ctx.section(sid)) || {};
+
+  // Self-register with DesignCanvas so the focus overlay can resolve
+  // `${sid}/${aid}` slot ids even when this section sits inside a custom
+  // page component (which the parent's JSX walk can't see through).
+  // Runs every render to keep the latest artboard element refs in the
+  // registry — `registerSection` short-circuits the re-render trigger
+  // unless the id-set or title/subtitle actually changed.
+  React.useLayoutEffect(() => {
+    if (!ctx?.registerSection || !sid) return;
+    const list = artboards
+      .map((a) => [a.props.id ?? a.props.label, a])
+      .filter(([k]) => k);
+    ctx.registerSection(sid, { title, subtitle }, list);
+  });
+  // Cleanup on unmount / sid change only.
+  React.useLayoutEffect(() => {
+    return () => ctx?.unregisterSection?.(sid);
+  }, [ctx, sid]);
   // Must match DesignCanvas's srcKey computation exactly (it filters falsy
   // IDs), or onDelete persists a srcKey that DesignCanvas never recognizes.
   const allIds = artboards.map((a) => a.props.id ?? a.props.label).filter(Boolean);
@@ -1355,8 +1408,9 @@ function DCArtboardFrame({
             </DropdownMenu>
             <Tooltip>
               <TooltipTrigger
+                onClick={onFocus}
                 render={
-                  <Button variant="ghost" size="icon-xs" aria-label="Focus" onClick={onFocus}>
+                  <Button variant="ghost" size="icon-xs" aria-label="Focus">
                     <Expand />
                   </Button>
                 }
@@ -1457,6 +1511,12 @@ function DCFocusArrow({ dir, label, onClick }) {
 // sections, Esc or backdrop click to exit.
 // ─────────────────────────────────────────────────────────────
 function DCFocusOverlay({ entry, sectionMeta, sectionOrder }) {
+  console.log('[focus-debug] DCFocusOverlay rendering', {
+    entrySection: entry?.sectionId,
+    entryArtId: entry?.artboard?.props?.id,
+    sectionOrder,
+    sectionMetaKeys: Object.keys(sectionMeta || {}),
+  });
   const ctx = React.useContext(DCCtx);
   const { sectionId, artboard } = entry;
   const sec = ctx.section(sectionId);

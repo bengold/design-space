@@ -32,7 +32,7 @@ import {
 } from './comment-actions.js';
 import { stylesToCssRule } from './css-property-schema.js';
 import { EditPanel } from './edit-panel.jsx';
-import { resolveDsRef, snapshotDom } from './elementContext.js';
+import { findReactComponentElements, resolveDsRef, snapshotDom } from './elementContext.js';
 import { appendReviewEvent } from './review-events.js';
 import { useSelectionPicker } from './selection-picker.jsx';
 import { fetchDesignJson, writeDesignFile } from '../preview/persistDesignFile.js';
@@ -42,11 +42,28 @@ export function useDesignReview() {
   return useContext(ReviewCtx);
 }
 
-async function persistOverrides(designName, byRef, canvas) {
+async function persistOverrides(designName, byRef, canvas, components = {}) {
   await writeDesignFile(`designs/${designName}/overrides.json`, {
     byRef,
     canvas: canvas || {},
+    components,
   });
+}
+
+function componentToken(key) {
+  let hash = 5381;
+  for (let i = 0; i < key.length; i += 1) hash = (hash * 33) ^ key.charCodeAt(i);
+  return `c${(hash >>> 0).toString(36)}`;
+}
+
+function selectorRule(selector, { styles = {}, cssText = '' }) {
+  const decl = Object.entries(styles)
+    .filter(([, v]) => v != null && String(v).trim() !== '')
+    .map(([k, v]) => `${k.replace(/[A-Z]/g, (m) => `-${m.toLowerCase()}`)}:${v} !important`)
+    .join(';');
+  const extra = cssText?.trim() ? cssText.trim().replace(/\s+/g, ' ') : '';
+  const body = [decl, extra].filter(Boolean).join(';');
+  return body ? `${selector}{${body}}` : '';
 }
 
 // Throttle DOM-snapshot writes so rapid keystrokes in the edit panel don't
@@ -96,21 +113,39 @@ function canvasRule(canvas) {
   return decl ? `.design-canvas{${decl}}` : '';
 }
 
-function OverridesInjector({ byRef, canvas }) {
+function OverridesInjector({ byRef, canvas, components }) {
   const css = useMemo(() => {
     const perRef = Object.entries(byRef || {})
       .map(([ref, o]) => stylesToCssRule(ref, o))
       .filter(Boolean)
       .join('\n');
+    const perComponent = Object.entries(components || {})
+      .map(([key, o]) =>
+        selectorRule(`[data-ds-component-ref~="${CSS.escape(componentToken(key))}"]`, o),
+      )
+      .filter(Boolean)
+      .join('\n');
     const rootRule = canvasRule(canvas);
-    return [rootRule, perRef].filter(Boolean).join('\n');
-  }, [byRef, canvas]);
+    return [rootRule, perRef, perComponent].filter(Boolean).join('\n');
+  }, [byRef, canvas, components]);
 
   // Resolve each saved ref to its element via the structural path and stamp the
   // data-ds-ref attribute back on so the CSS rule matches on a fresh page load.
   // Then imperatively apply any saved textContent (guarded against destroying
   // child structure).
   useEffect(() => {
+    document.querySelectorAll('[data-ds-component-ref]').forEach((el) => {
+      el.removeAttribute('data-ds-component-ref');
+    });
+    for (const [key, o] of Object.entries(components || {})) {
+      const token = componentToken(key);
+      const matches = findReactComponentElements(o.component);
+      for (const el of matches) {
+        const existing = el.getAttribute('data-ds-component-ref');
+        const next = existing ? `${existing} ${token}` : token;
+        el.setAttribute('data-ds-component-ref', next);
+      }
+    }
     for (const [ref, o] of Object.entries(byRef || {})) {
       let el = document.querySelector(`[data-ds-ref="${CSS.escape(ref)}"]`);
       if (!el) {
@@ -131,7 +166,7 @@ function OverridesInjector({ byRef, canvas }) {
         el.textContent = o.textContent;
       }
     }
-  }, [byRef]);
+  }, [byRef, components]);
 
   if (!css) return null;
   return <style data-ds-overrides>{css}</style>;
@@ -761,6 +796,7 @@ export function DesignReviewShell({ designName, children }) {
   const [comments, setComments] = useState([]);
   const [overrides, setOverrides] = useState({});
   const [canvasStyles, setCanvasStyles] = useState({});
+  const [componentOverrides, setComponentOverrides] = useState({});
   // Undo stack — each entry is a full snapshot of { byRef, canvas } from BEFORE
   // an applyOverride/applyCanvas call. Cmd+Z pops the latest and restores it.
   const undoStackRef = useRef([]);
@@ -811,6 +847,7 @@ export function DesignReviewShell({ designName, children }) {
     setComments(cData.comments || []);
     setOverrides(oData.byRef || {});
     setCanvasStyles(oData.canvas || {});
+    setComponentOverrides(oData.components || {});
     setQuestions(qData);
   }, [designName]);
 
@@ -1059,32 +1096,68 @@ export function DesignReviewShell({ designName, children }) {
   const applyOverride = useCallback(
     async (ref, patch) => {
       // Push current state before mutating, so Cmd+Z can revert this edit.
-      undoStackRef.current.push({ byRef: overrides, canvas: canvasStyles });
+      undoStackRef.current.push({
+        byRef: overrides,
+        canvas: canvasStyles,
+        components: componentOverrides,
+      });
       const next = { ...overrides, [ref]: { ...overrides[ref], ...patch } };
       setOverrides(next);
-      await persistOverrides(designName, next, canvasStyles);
+      await persistOverrides(designName, next, canvasStyles, componentOverrides);
       await notifyEvent('override.updated', { ref, keys: Object.keys(patch.styles || {}) });
       window.parent.postMessage({ type: '__overrides_updated', designName }, '*');
       scheduleDomSnapshot(designName);
     },
-    [designName, overrides, canvasStyles, notifyEvent],
+    [designName, overrides, canvasStyles, componentOverrides, notifyEvent],
+  );
+
+  const applyComponentOverride = useCallback(
+    async (componentKey, component, patch) => {
+      undoStackRef.current.push({
+        byRef: overrides,
+        canvas: canvasStyles,
+        components: componentOverrides,
+      });
+      const next = {
+        ...componentOverrides,
+        [componentKey]: {
+          ...componentOverrides[componentKey],
+          ...patch,
+          component,
+        },
+      };
+      setComponentOverrides(next);
+      await persistOverrides(designName, overrides, canvasStyles, next);
+      await notifyEvent('componentOverride.updated', {
+        componentKey,
+        componentName: component?.name,
+        keys: Object.keys(patch.styles || {}),
+      });
+      window.parent.postMessage({ type: '__overrides_updated', designName }, '*');
+      scheduleDomSnapshot(designName);
+    },
+    [designName, overrides, canvasStyles, componentOverrides, notifyEvent],
   );
 
   const applyCanvasStyle = useCallback(
     async (patch) => {
-      undoStackRef.current.push({ byRef: overrides, canvas: canvasStyles });
+      undoStackRef.current.push({
+        byRef: overrides,
+        canvas: canvasStyles,
+        components: componentOverrides,
+      });
       const next = { ...canvasStyles, ...patch };
       // Strip empty keys so they don't pollute the persisted JSON.
       for (const k of Object.keys(next)) {
         if (next[k] === '' || next[k] == null) delete next[k];
       }
       setCanvasStyles(next);
-      await persistOverrides(designName, overrides, next);
+      await persistOverrides(designName, overrides, next, componentOverrides);
       await notifyEvent('canvas.updated', { keys: Object.keys(patch) });
       window.parent.postMessage({ type: '__overrides_updated', designName }, '*');
       scheduleDomSnapshot(designName);
     },
-    [designName, overrides, canvasStyles, notifyEvent],
+    [designName, overrides, canvasStyles, componentOverrides, notifyEvent],
   );
 
   // Take a baseline DOM snapshot when Edit mode is first entered, so the
@@ -1098,7 +1171,10 @@ export function DesignReviewShell({ designName, children }) {
     if (!prev) return false;
     setOverrides(prev.byRef || {});
     setCanvasStyles(prev.canvas || {});
-    persistOverrides(designName, prev.byRef || {}, prev.canvas || {}).catch(() => {});
+    setComponentOverrides(prev.components || {});
+    persistOverrides(designName, prev.byRef || {}, prev.canvas || {}, prev.components || {}).catch(
+      () => {},
+    );
     window.parent.postMessage({ type: '__overrides_updated', designName }, '*');
     return true;
   }, [designName]);
@@ -1183,7 +1259,7 @@ export function DesignReviewShell({ designName, children }) {
 
   return (
     <ReviewCtx.Provider value={ctxValue}>
-      <OverridesInjector byRef={overrides} canvas={canvasStyles} />
+      <OverridesInjector byRef={overrides} canvas={canvasStyles} components={componentOverrides} />
       {children}
       {selectionOverlay}
       <CommentPinLayer comments={comments} highlighted={highlighted} onSelect={openCommentPanel} />
@@ -1221,7 +1297,9 @@ export function DesignReviewShell({ designName, children }) {
         el={editTarget}
         overrides={overrides}
         canvasStyles={canvasStyles}
+        componentOverrides={componentOverrides}
         onApply={applyOverride}
+        onApplyComponent={applyComponentOverride}
         onApplyCanvas={applyCanvasStyle}
         onClearSelection={() => setEditTarget(null)}
         onClose={() => {

@@ -1,1 +1,1 @@
-{"sections":{"onboarding":{"labels":{"b":"B · Minimal","a":"Second one"},"order":["b","a"],"title":"Testing 123"},"settings":{"labels":{"prefs":"Preferences"}},"dashboard":{"labels":{"balance":"Balance"}},"loop-flow":{"title":"Loop signup"}}}
+{"sections":{"onboarding":{"labels":{"b":"B · Minimal","a":"Second one"},"order":["b","a"],"title":"Testing 123"},"settings":{"labels":{"prefs":"Preferences"}},"dashboard":{"labels":{"balance":"Balance"}},"loop-flow":{"title":"Loop signup","labels":{"verify":"C · Verify","welcome":"A · Welcome"}}}}

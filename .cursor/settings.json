@@ -1,0 +1,13 @@
+{
+  "plugins": {
+    "cursor-team-kit": {
+      "enabled": true
+    },
+    "cli-for-agent": {
+      "enabled": true
+    },
+    "agent-compatibility": {
+      "enabled": true
+    }
+  }
+}

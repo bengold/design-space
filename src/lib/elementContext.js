@@ -130,6 +130,34 @@ function reactSource(el) {
   return null;
 }
 
+export function getReactComponentDescriptor(el) {
+  if (!el || el.nodeType !== 1) return null;
+  const name = reactName(el);
+  if (!name) return null;
+  const source = reactSource(el);
+  const tag = el.tagName.toLowerCase();
+  return {
+    name,
+    source,
+    tag,
+    key: [name, source || 'unknown-source', tag].join('|'),
+  };
+}
+
+export function findReactComponentElements(descriptor) {
+  if (!descriptor?.key) return [];
+  const roots = scanRoots();
+  const out = [];
+  for (const root of roots) {
+    const all = root.querySelectorAll('*');
+    for (const el of all) {
+      const next = getReactComponentDescriptor(el);
+      if (next?.key === descriptor.key) out.push(el);
+    }
+  }
+  return out;
+}
+
 function trunc(s, n = 24) {
   if (!s) return '';
   const compact = String(s).trim().replace(/\s+/g, ' ');
@@ -413,7 +441,12 @@ export function getDocumentFonts() {
 // children indented. data-ds-ref is stripped (session-local noise), script/
 // style bodies elided. Stamps React component names as data-react-component
 // during the walk; cleans up afterward.
-const SNAP_SKIP_ATTRS = new Set(['data-ds-ref', 'contenteditable']);
+const SNAP_SKIP_ATTRS = new Set([
+  'data-ds-ref',
+  'data-ds-component-ref',
+  'data-ds-component-preview',
+  'contenteditable',
+]);
 const SNAP_ELIDE_TAGS = new Set(['SCRIPT', 'STYLE', 'NOSCRIPT']);
 
 function snapSerialize(el, depth, out, nameMap) {
