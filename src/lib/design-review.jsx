@@ -25,7 +25,7 @@ import {
 } from './comment-actions.js';
 import { stylesToCssRule } from './css-property-schema.js';
 import { EditPanel } from './edit-panel.jsx';
-import { resolveDsRef } from './elementContext.js';
+import { resolveDsRef, snapshotDom } from './elementContext.js';
 import { appendReviewEvent } from './review-events.js';
 import { useSelectionPicker } from './selection-picker.jsx';
 import { fetchDesignJson, writeDesignFile } from '../preview/persistDesignFile.js';
@@ -40,6 +40,28 @@ async function persistOverrides(designName, byRef, canvas) {
     byRef,
     canvas: canvas || {},
   });
+}
+
+// Throttle DOM-snapshot writes so rapid keystrokes in the edit panel don't
+// hammer /api/write. Trailing edge ensures the last snapshot in a burst
+// always lands on disk.
+const SNAPSHOT_DEBOUNCE_MS = 800;
+let snapshotTimer = null;
+let snapshotPendingName = null;
+function scheduleDomSnapshot(designName) {
+  snapshotPendingName = designName;
+  if (snapshotTimer) clearTimeout(snapshotTimer);
+  snapshotTimer = setTimeout(async () => {
+    snapshotTimer = null;
+    const name = snapshotPendingName;
+    if (!name) return;
+    try {
+      const text = snapshotDom();
+      if (text) await writeDesignFile(`designs/${name}/dom-snapshot.txt`, text);
+    } catch {
+      /* best-effort — losing a snapshot is recoverable on next edit */
+    }
+  }, SNAPSHOT_DEBOUNCE_MS);
 }
 
 function commentContexts(comment) {
@@ -90,6 +112,12 @@ function OverridesInjector({ byRef, canvas }) {
       }
       if (!el) continue;
       if (o.textContent == null) continue;
+      // Skip elements currently being edited inline — rewriting textContent
+      // mid-keystroke nukes the user's caret and breaks the contentEditable
+      // session. The keystrokes themselves already update the DOM; the
+      // override only needs to be re-applied on reload (next mount of this
+      // injector with this byRef), not during typing.
+      if (el.hasAttribute('data-ds-editing')) continue;
       if (el.childNodes.length === 1 && el.firstChild?.nodeType === 3) {
         el.firstChild.textContent = o.textContent;
       } else if (!el.querySelector('[data-ds-ref]') && el.children.length === 0) {
@@ -406,6 +434,14 @@ export function DesignReviewShell({ designName, children }) {
   const [comments, setComments] = useState([]);
   const [overrides, setOverrides] = useState({});
   const [canvasStyles, setCanvasStyles] = useState({});
+  // Refs mirror the latest state so applyOverride/applyCanvasStyle can read
+  // current values without taking them as deps — otherwise every successful
+  // write re-creates the callbacks, which cascades into the edit panel as a
+  // changed `onApply` prop and triggers a write loop.
+  const overridesRef = useRef(overrides);
+  overridesRef.current = overrides;
+  const canvasStylesRef = useRef(canvasStyles);
+  canvasStylesRef.current = canvasStyles;
   // Undo stack — each entry is a full snapshot of { byRef, canvas } from BEFORE
   // an applyOverride/applyCanvas call. Cmd+Z pops the latest and restores it.
   const undoStackRef = useRef([]);
@@ -691,32 +727,47 @@ export function DesignReviewShell({ designName, children }) {
 
   const applyOverride = useCallback(
     async (ref, patch) => {
+      const cur = overridesRef.current;
+      const curCanvas = canvasStylesRef.current;
       // Push current state before mutating, so Cmd+Z can revert this edit.
-      undoStackRef.current.push({ byRef: overrides, canvas: canvasStyles });
-      const next = { ...overrides, [ref]: { ...overrides[ref], ...patch } };
+      undoStackRef.current.push({ byRef: cur, canvas: curCanvas });
+      const next = { ...cur, [ref]: { ...cur[ref], ...patch } };
       setOverrides(next);
-      await persistOverrides(designName, next, canvasStyles);
+      await persistOverrides(designName, next, curCanvas);
       await notifyEvent('override.updated', { ref, keys: Object.keys(patch.styles || {}) });
       window.parent.postMessage({ type: '__overrides_updated', designName }, '*');
+      scheduleDomSnapshot(designName);
     },
-    [designName, overrides, canvasStyles, notifyEvent],
+    [designName, notifyEvent],
   );
 
   const applyCanvasStyle = useCallback(
-    async (patch) => {
-      undoStackRef.current.push({ byRef: overrides, canvas: canvasStyles });
-      const next = { ...canvasStyles, ...patch };
-      // Strip empty keys so they don't pollute the persisted JSON.
-      for (const k of Object.keys(next)) {
-        if (next[k] === '' || next[k] == null) delete next[k];
+    async (nextStyles) => {
+      const cur = overridesRef.current;
+      const curCanvas = canvasStylesRef.current;
+      undoStackRef.current.push({ byRef: cur, canvas: curCanvas });
+      // The caller (CanvasPanelBody) owns the full draft; treat it as a
+      // replacement, not a merge. Otherwise clearing a key in the panel (which
+      // removes it from `draft`) wouldn't actually delete it from disk — the
+      // old value would survive via the spread.
+      const next = {};
+      for (const [k, v] of Object.entries(nextStyles || {})) {
+        if (v !== '' && v != null) next[k] = v;
       }
       setCanvasStyles(next);
-      await persistOverrides(designName, overrides, next);
-      await notifyEvent('canvas.updated', { keys: Object.keys(patch) });
+      await persistOverrides(designName, cur, next);
+      await notifyEvent('canvas.updated', { keys: Object.keys(next) });
       window.parent.postMessage({ type: '__overrides_updated', designName }, '*');
+      scheduleDomSnapshot(designName);
     },
-    [designName, overrides, canvasStyles, notifyEvent],
+    [designName, notifyEvent],
   );
+
+  // Take a baseline DOM snapshot when Edit mode is first entered, so the
+  // agent has something to diff against even before the first override lands.
+  useEffect(() => {
+    if (editMode) scheduleDomSnapshot(designName);
+  }, [editMode, designName]);
 
   const undoLastEdit = useCallback(() => {
     const prev = undoStackRef.current.pop();
@@ -758,10 +809,22 @@ export function DesignReviewShell({ designName, children }) {
     [commentMode, editMode],
   );
 
+  const onTextEditCommit = useCallback(
+    (el, textContent) => {
+      const ref = el.dataset.dsRef;
+      if (!ref) return;
+      applyOverride(ref, { textContent });
+    },
+    [applyOverride],
+  );
+
   const { overlay: selectionOverlay, clearSelection } = useSelectionPicker({
     active: pickMode,
     multiSelect: commentMode,
     onPick,
+    // Only enable inline text editing in Edit mode — in Comment mode dblclick
+    // should preserve the click-to-add-comment flow.
+    onTextEditCommit: editMode ? onTextEditCommit : null,
   });
 
   useEffect(() => {

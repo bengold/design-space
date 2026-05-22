@@ -3,17 +3,23 @@ import { HexAlphaColorPicker } from 'react-colorful';
 import { colord } from 'colord';
 import { ChevronDown, X } from 'lucide-react';
 
-import { Button } from '@/components/ui/button';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Sheet, SheetContent } from '@/components/ui/sheet';
 import { Slider } from '@/components/ui/slider';
 import { Textarea } from '@/components/ui/textarea';
+import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { cn } from '@/lib/utils';
 
 import { stylesToCssRule } from './css-property-schema.js';
-import { ensureDsRef } from './elementContext.js';
+import { ensureDsRef, getDocumentColors, getDocumentFonts } from './elementContext.js';
+import {
+  buildFontOptions,
+  ensureGoogleFontLoaded,
+  loadGoogleFontsCatalog,
+  POPULAR_GOOGLE_FONTS,
+} from './font-catalog.js';
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
 
@@ -81,6 +87,10 @@ const LENGTH_KEYS = new Set([
   'borderBottomWidth',
   'borderLeftWidth',
   'borderWidth',
+  'left',
+  'top',
+  'right',
+  'bottom',
 ]);
 const COLOR_KEYS = new Set(['color', 'backgroundColor', 'background', 'borderColor']);
 const FONT_WEIGHT_VALUES = new Set([
@@ -306,7 +316,22 @@ function TextRow({ label, value, onChange, placeholder, full = false, mono = fal
 }
 
 function SelectRow({ label, value, options, onChange, full = false }) {
+  // Normalize: strings → {label, value}; headers stay as-is.
   const opts = options.map((o) => (typeof o === 'string' ? { label: o, value: o } : o));
+  // Group consecutive non-header entries under the most-recent header into
+  // <optgroup> for visual grouping (System / Google Fonts / etc.). Entries
+  // before any header render flat at the top of the list.
+  const groups = [];
+  let current = { label: null, items: [] };
+  groups.push(current);
+  for (const o of opts) {
+    if (o.kind === 'header') {
+      current = { label: o.label, items: [] };
+      groups.push(current);
+    } else {
+      current.items.push(o);
+    }
+  }
   return (
     <FieldShell label={label} className={cn('relative', full && 'w-full')}>
       <select
@@ -315,17 +340,56 @@ function SelectRow({ label, value, options, onChange, full = false }) {
         className="min-w-0 flex-1 cursor-pointer appearance-none border-0 bg-transparent pr-4 text-right text-sm text-foreground outline-none"
       >
         <option value="">—</option>
-        {opts.map((o) => (
-          <option key={o.value} value={o.value}>
-            {o.label}
-          </option>
-        ))}
+        {groups.map((g, gi) => {
+          if (g.items.length === 0) return null;
+          if (!g.label) {
+            return g.items.map((o) => (
+              <option key={o.value} value={o.value}>
+                {o.label}
+              </option>
+            ));
+          }
+          return (
+            <optgroup key={`${g.label}-${gi}`} label={g.label}>
+              {g.items.map((o) => (
+                <option key={o.value} value={o.value}>
+                  {o.label}
+                </option>
+              ))}
+            </optgroup>
+          );
+        })}
       </select>
       <ChevronDown
         aria-hidden
         className="pointer-events-none absolute right-3 size-3 text-muted-foreground"
       />
     </FieldShell>
+  );
+}
+
+// Lazy-scan once when shown — getDocumentColors is cheap (~500 nodes) but no
+// reason to redo it on every keystroke in the picker.
+function DocumentColorSwatches({ onPick }) {
+  const [colors, setColors] = useState(null);
+  useEffect(() => {
+    setColors(getDocumentColors());
+  }, []);
+  if (!colors?.length) return null;
+  return (
+    <div className="mt-2 flex flex-wrap gap-1">
+      {colors.map((c) => (
+        <button
+          key={c}
+          type="button"
+          aria-label={`Use ${c}`}
+          title={c}
+          onClick={() => onPick(c)}
+          className="size-5 rounded border border-border"
+          style={{ background: c }}
+        />
+      ))}
+    </div>
   );
 }
 
@@ -381,6 +445,7 @@ function ColorRow({ label, value, onChange, full = false }) {
         />
         <PopoverContent align="end" className="w-auto p-3">
           <HexAlphaColorPicker color={hex} onChange={handlePicker} />
+          <DocumentColorSwatches onPick={handlePicker} />
         </PopoverContent>
       </Popover>
       <FieldInput
@@ -509,12 +574,67 @@ function useLivePreview(ref, el, styles, cssText, textContent, textChanged) {
 
 // ─── option lists ─────────────────────────────────────────────────────────────
 
-const FONT_OPTIONS = [
-  '-apple-system',
-  'ui-sans-serif, system-ui, sans-serif',
-  'Georgia, "Times New Roman", serif',
-  'ui-monospace, monospace',
-];
+// Shared hook for the Font select. Returns a fully-grouped option list with
+// system stacks + Google Fonts. The Google list starts as the static
+// popular-seed; when an API key is configured, the full ~1500-family list is
+// fetched in the background and the array swaps in.
+//
+// Also returns a `pickFont` that callers wrap their setStyle in so the
+// stylesheet is injected on the way out.
+function useFontOptions(currentValue, inDocFonts = []) {
+  const [googleFamilies, setGoogleFamilies] = useState(POPULAR_GOOGLE_FONTS);
+  useEffect(() => {
+    let cancelled = false;
+    loadGoogleFontsCatalog().then((list) => {
+      if (!cancelled && list?.length) setGoogleFamilies(list);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const options = useMemo(() => {
+    const base = buildFontOptions(googleFamilies);
+    // Prepend in-document fonts (computed values picked up from getDocumentFonts)
+    // so the user can always pick a font that's already in use. Skip ones that
+    // already exist as labels in the catalog.
+    const known = new Set(base.filter((o) => o.value).map((o) => o.label));
+    const inDoc = [];
+    for (const f of inDocFonts) {
+      if (!f || known.has(f)) continue;
+      inDoc.push({ value: f, label: f, source: 'in-doc' });
+      known.add(f);
+    }
+    // If the currently-saved value isn't anywhere in the list, surface it at
+    // the top so the dropdown reflects reality.
+    const allValues = new Set(base.filter((o) => o.value).map((o) => o.value));
+    const orphan =
+      currentValue && !allValues.has(currentValue)
+        ? [{ value: currentValue, label: currentValue, source: 'current' }]
+        : [];
+    return [
+      ...orphan,
+      ...(inDoc.length ? [{ kind: 'header', label: 'In document' }, ...inDoc] : []),
+      ...base,
+    ];
+  }, [googleFamilies, inDocFonts, currentValue]);
+
+  const valueToGoogle = useMemo(() => {
+    const map = new Map();
+    for (const o of options) {
+      if (o.google && o.value) map.set(o.value, o.google);
+    }
+    return map;
+  }, [options]);
+
+  const pickFont = (next) => {
+    const family = valueToGoogle.get(next);
+    if (family) ensureGoogleFontLoaded(family);
+  };
+
+  return { options, pickFont };
+}
+
 const WEIGHT_OPTIONS = ['100', '200', '300', '400', '500', '600', '700', '800', '900'];
 const ALIGN_OPTIONS = ['left', 'center', 'right', 'justify'];
 const DIRECTION_OPTIONS = ['row', 'row-reverse', 'column', 'column-reverse'];
@@ -568,27 +688,118 @@ function readComputed(el, key) {
   return t;
 }
 
-function EditPanelBody({ el, overrides, onApply, onClose }) {
+// Switch position-mode without visual jump. Reads current bounding rect and
+// emits matching `left`/`top` for the new containing block:
+//   • static / relative → clear all insets
+//   • absolute          → relative to offsetParent (positioned ancestor)
+//   • fixed             → relative to viewport
+function computePositionModeSwitch(el, mode) {
+  if (!el) return null;
+  if (mode === 'static' || mode === 'relative') {
+    return {
+      position: mode === 'static' ? '' : 'relative',
+      left: '',
+      top: '',
+      right: '',
+      bottom: '',
+    };
+  }
+  const r = el.getBoundingClientRect();
+  if (mode === 'fixed') {
+    return {
+      position: 'fixed',
+      left: `${Math.round(r.left)}px`,
+      top: `${Math.round(r.top)}px`,
+      right: '',
+      bottom: '',
+    };
+  }
+  if (mode === 'absolute') {
+    const ancestor = el.offsetParent || document.body;
+    const ar = ancestor.getBoundingClientRect();
+    return {
+      position: 'absolute',
+      left: `${Math.round(r.left - ar.left)}px`,
+      top: `${Math.round(r.top - ar.top)}px`,
+      right: '',
+      bottom: '',
+    };
+  }
+  return null;
+}
+
+const POSITION_MODES = ['static', 'relative', 'absolute', 'fixed'];
+
+function PositionRow({ el, styleOf, patchStyles }) {
+  const current = styleOf('position') || 'static';
+  const mode = POSITION_MODES.includes(current) ? current : 'static';
+  const applyMode = (next) => {
+    if (!next || next === mode) return;
+    const patch = computePositionModeSwitch(el, next);
+    if (!patch) return;
+    patchStyles(patch);
+  };
+  return (
+    <div className={cn(ROW_CLS, 'w-full justify-between')}>
+      <span className="shrink-0 text-xs text-muted-foreground">Position</span>
+      <ToggleGroup
+        type="single"
+        size="sm"
+        spacing={0}
+        variant="outline"
+        value={mode}
+        onValueChange={applyMode}
+        className="h-6"
+      >
+        {POSITION_MODES.map((m) => (
+          <ToggleGroupItem
+            key={m}
+            value={m}
+            size="sm"
+            variant="outline"
+            className="h-6 px-2 text-[11px] font-medium"
+          >
+            {m}
+          </ToggleGroupItem>
+        ))}
+      </ToggleGroup>
+    </div>
+  );
+}
+
+function EditPanelBody({ el, overrides, onApply }) {
   const ref = ensureDsRef(el);
   // Capture `overrides` via ref so init only fires on element change — not when
   // our own auto-persist updates the overrides map (which would re-init in a loop).
   const overridesRef = useRef(overrides);
   overridesRef.current = overrides;
 
+  // Capture `onApply` via ref so the persist effect doesn't refire every time
+  // the parent re-creates the callback. Without this, every successful write
+  // changed `onApply`'s identity, retriggering the effect → another timer →
+  // another write → cascade (15+ empty writes per element selection).
+  const onApplyRef = useRef(onApply);
+  onApplyRef.current = onApply;
+
   // `styles` holds ONLY user-edited deltas — never the computed snapshot.
   const [styles, setStyles] = useState({});
   const [cssText, setCssText] = useState('');
-  const [text, setText] = useState('');
-  const initialTextRef = useRef('');
   const initialized = useRef(false);
+  // JSON snapshot of the last payload we persisted (or initial state we loaded).
+  // Belt-and-suspenders: even if the persist effect refires for any other
+  // reason, we never write the same payload twice in a row.
+  const lastPersistedRef = useRef('');
 
   useEffect(() => {
     const initial = overridesRef.current[ref] || {};
-    const initialText = (el.textContent || '').trim().slice(0, 500);
-    initialTextRef.current = initialText;
-    setText(initialText);
-    setStyles(initial.styles || {});
-    setCssText(initial.cssText || '');
+    const initStyles = initial.styles || {};
+    const initCss = initial.cssText || '';
+    setStyles(initStyles);
+    setCssText(initCss);
+    lastPersistedRef.current = JSON.stringify({
+      styles: initStyles,
+      cssText: initCss.trim() || undefined,
+    });
     initialized.current = false;
     const id = requestAnimationFrame(() => {
       initialized.current = true;
@@ -596,21 +807,23 @@ function EditPanelBody({ el, overrides, onApply, onClose }) {
     return () => cancelAnimationFrame(id);
   }, [el, ref]);
 
-  const textChanged = text !== initialTextRef.current;
   const cssError = useMemo(() => validateCssText(cssText), [cssText]);
 
   // Tweaks-style auto-persist: each change debounces a write to disk via onApply.
+  // Text content is no longer edited from the panel — double-click the element
+  // in the preview to edit it inline (selection-picker handles that flow and
+  // calls applyOverride directly with { textContent }).
   useEffect(() => {
-    if (!initialized.current) return;
+    if (!initialized.current) return undefined;
+    const payload = { styles, cssText: cssText.trim() || undefined };
+    const key = JSON.stringify(payload);
+    if (key === lastPersistedRef.current) return undefined;
     const t = setTimeout(() => {
-      onApply(ref, {
-        styles,
-        cssText: cssText.trim() || undefined,
-        textContent: textChanged ? text : undefined,
-      });
+      lastPersistedRef.current = key;
+      onApplyRef.current(ref, payload);
     }, 250);
     return () => clearTimeout(t);
-  }, [ref, styles, cssText, text, textChanged, onApply]);
+  }, [ref, styles, cssText]);
 
   const setStyle = (key, value) => {
     setStyles((s) => {
@@ -621,19 +834,29 @@ function EditPanelBody({ el, overrides, onApply, onClose }) {
       return { ...s, [key]: value };
     });
   };
+  // Single state update for multi-key changes (position-mode switch sets
+  // position + left/top/right/bottom together; sequential setStyle calls would
+  // produce four onApply ticks under the debounce).
+  const patchStyles = (patch) => {
+    setStyles((s) => {
+      const next = { ...s };
+      for (const [k, v] of Object.entries(patch)) {
+        if (v === '' || v == null) delete next[k];
+        else next[k] = v;
+      }
+      return next;
+    });
+  };
   // Read order: in-flight user edit first, then any persisted override, then
   // computed (for display only). The displayed value is what the user sees in
   // the input; `styles` is what gets persisted.
   const styleOf = (key) => styles[key] ?? readComputed(el, key);
 
-  const previewStyle = useLivePreview(ref, el, styles, cssText, text);
+  const previewStyle = useLivePreview(ref, el, styles, cssText);
 
-  const fontOptions = useMemo(() => {
-    const current = styleOf('fontFamily');
-    if (current && !FONT_OPTIONS.includes(current)) return [current, ...FONT_OPTIONS];
-    return FONT_OPTIONS;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [styles.fontFamily, el]);
+  // getDocumentFonts walks document.fonts — stateless w.r.t. `el`, so no dep.
+  const inDocFonts = useMemo(() => getDocumentFonts(), []);
+  const { options: fontOptions, pickFont } = useFontOptions(styleOf('fontFamily'), inDocFonts);
 
   return (
     <>
@@ -649,7 +872,10 @@ function EditPanelBody({ el, overrides, onApply, onClose }) {
               full
               value={styleOf('fontFamily')}
               options={fontOptions}
-              onChange={(v) => setStyle('fontFamily', v)}
+              onChange={(v) => {
+                pickFont(v);
+                setStyle('fontFamily', v);
+              }}
             />
             <div className="grid grid-cols-2 gap-2">
               <NumericRow
@@ -748,6 +974,29 @@ function EditPanelBody({ el, overrides, onApply, onClose }) {
           </section>
 
           <section className="flex flex-col gap-2">
+            <SectionLabel>Position</SectionLabel>
+            <PositionRow el={el} styleOf={styleOf} patchStyles={patchStyles} />
+            {styleOf('position') === 'absolute' ||
+            styleOf('position') === 'fixed' ||
+            styleOf('position') === 'relative' ? (
+              <div className="grid grid-cols-2 gap-2">
+                <NumericRow
+                  label="Left"
+                  value={styleOf('left')}
+                  onChange={(v) => setStyle('left', v)}
+                  styleKey="left"
+                />
+                <NumericRow
+                  label="Top"
+                  value={styleOf('top')}
+                  onChange={(v) => setStyle('top', v)}
+                  styleKey="top"
+                />
+              </div>
+            ) : null}
+          </section>
+
+          <section className="flex flex-col gap-2">
             <SectionLabel>Box</SectionLabel>
             <ColorRow
               label="Fill"
@@ -821,29 +1070,6 @@ function EditPanelBody({ el, overrides, onApply, onClose }) {
             <CollapsibleTrigger
               render={(props) => (
                 <button type="button" {...props} className={cn(ROW_CLS, 'w-full text-left')}>
-                  <span className="shrink-0 text-xs text-muted-foreground">Text content</span>
-                  <span className="ml-auto truncate text-xs text-muted-foreground">
-                    {text ? `"${text.slice(0, 24)}${text.length > 24 ? '…' : ''}"` : 'empty'}
-                  </span>
-                  <ChevronDown aria-hidden className="size-3 shrink-0 text-muted-foreground" />
-                </button>
-              )}
-            />
-            <CollapsibleContent>
-              <Textarea
-                value={text}
-                onChange={(e) => setText(e.target.value)}
-                placeholder="Text content"
-                rows={3}
-                className="mt-1.5"
-              />
-            </CollapsibleContent>
-          </Collapsible>
-
-          <Collapsible>
-            <CollapsibleTrigger
-              render={(props) => (
-                <button type="button" {...props} className={cn(ROW_CLS, 'w-full text-left')}>
                   <span className="shrink-0 text-xs text-muted-foreground">Custom CSS</span>
                   <span className="ml-auto truncate font-mono text-[10px] text-muted-foreground">
                     {cssText ? `${cssText.slice(0, 28)}…` : 'none'}
@@ -878,17 +1104,50 @@ function EditPanelBody({ el, overrides, onApply, onClose }) {
 // Canvas-wide controls shown when Edit mode is on but nothing is selected.
 // Persists to overrides.json's `canvas` field, which OverridesInjector emits
 // as a :root rule so background/font/base-size apply globally.
-const CANVAS_FONT_OPTIONS = [
-  '-apple-system',
-  'ui-sans-serif, system-ui, sans-serif',
-  'Georgia, "Times New Roman", serif',
-  'ui-monospace, monospace',
-];
+
+// Track whether the active page is a raw page (no canvas chrome). Canvas-wide
+// overrides target `.design-canvas { ... }`, which raw pages don't carry, so
+// the Canvas section UI is meaningless there. We detect by polling for the
+// `data-dc-page-raw` marker the design-canvas sets on raw page wrappers — no
+// dedicated event bus needed since page switches are infrequent.
+function useIsRawPage() {
+  const [raw, setRaw] = useState(() =>
+    typeof document !== 'undefined' ? !!document.querySelector('[data-dc-page-raw]') : false,
+  );
+  useEffect(() => {
+    const tick = () => setRaw(!!document.querySelector('[data-dc-page-raw]'));
+    tick();
+    const obs = new MutationObserver(tick);
+    obs.observe(document.body, { childList: true, subtree: true, attributes: true });
+    return () => obs.disconnect();
+  }, []);
+  return raw;
+}
 
 function CanvasPanelBody({ canvasStyles, onApplyCanvas }) {
   const [draft, setDraft] = useState(canvasStyles || {});
+  const inDocFonts = useMemo(() => getDocumentFonts(), []);
+  const { options: canvasFontOptions, pickFont } = useFontOptions(draft.fontFamily, inDocFonts);
+  const isRawPage = useIsRawPage();
 
+  // Capture the apply callback via ref — same fix pattern as EditPanelBody.
+  // Without it, each persisted write changes onApplyCanvas's identity, which
+  // refires the persist effect → another write → cascade.
+  const onApplyCanvasRef = useRef(onApplyCanvas);
+  onApplyCanvasRef.current = onApplyCanvas;
+
+  // Tracks the JSON of the last canvas snapshot we know is in sync with disk.
+  // Used both to ignore our own outbound writes coming back through props, and
+  // to skip persist-effect refires that would otherwise re-write the same data.
+  const lastPersistedRef = useRef(JSON.stringify(canvasStyles || {}));
+
+  // If canvasStyles arrives externally (file reload, undo, another tab), adopt
+  // it. If it matches what we just persisted, do nothing — otherwise setDraft
+  // would mutate the draft reference and retrigger our own persist.
   useEffect(() => {
+    const key = JSON.stringify(canvasStyles || {});
+    if (key === lastPersistedRef.current) return;
+    lastPersistedRef.current = key;
     setDraft(canvasStyles || {});
   }, [canvasStyles]);
 
@@ -898,11 +1157,14 @@ function CanvasPanelBody({ canvasStyles, onApplyCanvas }) {
       initialized.current = true;
       return undefined;
     }
+    const key = JSON.stringify(draft);
+    if (key === lastPersistedRef.current) return undefined;
     const t = setTimeout(() => {
-      onApplyCanvas(draft);
+      lastPersistedRef.current = key;
+      onApplyCanvasRef.current(draft);
     }, 250);
     return () => clearTimeout(t);
-  }, [draft, onApplyCanvas]);
+  }, [draft]);
 
   const set = (key, value) => {
     setDraft((d) => {
@@ -912,6 +1174,21 @@ function CanvasPanelBody({ canvasStyles, onApplyCanvas }) {
       return next;
     });
   };
+
+  if (isRawPage) {
+    return (
+      <ScrollArea className="min-h-0 flex-1">
+        <div className="flex flex-col gap-3 p-4">
+          <SectionLabel>Canvas</SectionLabel>
+          <p className="px-1 text-[12px] leading-snug text-muted-foreground">
+            This page is rendered raw (no canvas chrome), so canvas-wide background/font/text-color
+            controls don&apos;t apply here. Click an element in the preview to edit it directly, or
+            switch to a canvas page to adjust canvas settings.
+          </p>
+        </div>
+      </ScrollArea>
+    );
+  }
 
   return (
     <ScrollArea className="min-h-0 flex-1">
@@ -932,8 +1209,11 @@ function CanvasPanelBody({ canvasStyles, onApplyCanvas }) {
             label="Font"
             full
             value={draft.fontFamily}
-            options={CANVAS_FONT_OPTIONS}
-            onChange={(v) => set('fontFamily', v)}
+            options={canvasFontOptions}
+            onChange={(v) => {
+              pickFont(v);
+              set('fontFamily', v);
+            }}
           />
           <NumericRow
             label="Base size"
@@ -959,17 +1239,27 @@ export function EditPanel({
   onClearSelection,
   onClose,
 }) {
-  // Sheet stays open as long as Edit mode is on; closing only fires when the
-  // user clicks the X (or toggles Edit off in the host toolbar).
+  // Sheet stays open as long as Edit mode is on. Closing fires ONLY when the
+  // user clicks the X (closePress) or the host toggles Edit off
+  // (imperativeAction). Base UI's Dialog would otherwise auto-close on
+  // outsidePress / escapeKey / focusOut — the last one fires when the user
+  // double-clicks an element to start inline text editing (focus moves to
+  // the contentEditable outside the panel), so we filter those out.
   return (
-    <Sheet open={!!open} onOpenChange={(o) => !o && onClose()} modal={false}>
+    <Sheet
+      open={!!open}
+      onOpenChange={(o, details) => {
+        if (o) return;
+        const reason = details?.reason;
+        if (reason === 'closePress' || reason === 'imperativeAction') onClose();
+      }}
+      modal={false}
+      disablePointerDismissal
+    >
       <SheetContent
         side="right"
         showOverlay={false}
         showCloseButton={false}
-        onEscapeKeyDown={(e) => e.preventDefault?.()}
-        onPointerDownOutside={(e) => e.preventDefault?.()}
-        onInteractOutside={(e) => e.preventDefault?.()}
         className="ds-review-ui flex w-[340px] flex-col gap-0 p-0 sm:w-[360px]"
       >
         <div className="flex items-center justify-between border-b border-border px-4 py-3">
@@ -997,7 +1287,7 @@ export function EditPanel({
         </div>
 
         {el ? (
-          <EditPanelBody el={el} overrides={overrides} onApply={onApply} onClose={onClose} />
+          <EditPanelBody el={el} overrides={overrides} onApply={onApply} />
         ) : (
           <CanvasPanelBody canvasStyles={canvasStyles} onApplyCanvas={onApplyCanvas} />
         )}
