@@ -366,7 +366,7 @@ function ColorRow({ label, value, onChange, full = false }) {
             <button
               type="button"
               {...props}
-              className="size-4 shrink-0 rounded border border-border"
+              className="size-4 shrink-0 rounded border border-foreground/20 shadow-[inset_0_0_0_1px_rgb(255_255_255_/_0.5)]"
               style={{
                 backgroundImage:
                   'linear-gradient(45deg, #ccc 25%, transparent 25%), linear-gradient(-45deg, #ccc 25%, transparent 25%), linear-gradient(45deg, transparent 75%, #ccc 75%), linear-gradient(-45deg, transparent 75%, #ccc 75%)',
