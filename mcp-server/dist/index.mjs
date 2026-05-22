@@ -15712,11 +15712,11 @@ async function waitForQuestions(name, timeoutSec = 600, { signal } = {}) {
   while (Date.now() < deadline) {
     if (signal?.aborted) throw new Error("aborted");
     const q = readJson(file, null);
-    if (q?.status === "answered") return q;
+    if (q?.status === "answered" || q?.status === "dismissed") return q;
     sleepMs(2e3);
   }
   throw new Error(
-    `Timed out after ${timeoutSec}s waiting for designs/${name}/questions.json status "answered"`
+    `Timed out after ${timeoutSec}s waiting for designs/${name}/questions.json (status: answered|dismissed)`
   );
 }
 async function waitForEvents(name, { since = null, timeoutSec = 600 } = {}) {
@@ -15836,7 +15836,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
     },
     {
       name: "design_space_questions_wait",
-      description: "Block until user submits questions (status=answered). Timeout seconds default 600.",
+      description: 'Block until the user resolves the questions modal \u2014 either by submitting (status=answered) or dismissing without answering (status=dismissed, with dismissReason: "user"|"idle"). Inspect the returned status to branch. Timeout seconds default 600.',
       inputSchema: {
         type: "object",
         properties: {

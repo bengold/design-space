@@ -45,7 +45,7 @@ async function writeUpload(designName, questionId, file) {
 }
 
 /** Map legacy `type` + `prompt` to Claude Design `kind` + `title`. */
-export function normalizeQuestion(q) {
+function normalizeQuestion(q) {
   if (!q || !q.id) return null;
   const title = q.title || q.prompt || q.id;
   const options = Array.isArray(q.options) ? q.options : [];
@@ -426,16 +426,41 @@ export default function QuestionsPanel({ designName, onAnswered, onDismiss }) {
 
   const setAnswer = (id, value) => setAnswers((prev) => ({ ...prev, [id]: value }));
 
-  const dismiss = useCallback(async () => {
-    if (!designName || !data) return;
-    const next = { ...data, trigger: null };
-    await writeJson(`designs/${designName}/questions.json`, next);
-    setData(next);
-    onDismiss?.();
-  }, [designName, data, onDismiss]);
+  const dismiss = useCallback(
+    async (reason = 'user') => {
+      if (!designName || !data) return;
+      const dismissedAt = new Date().toISOString();
+      const next = {
+        ...data,
+        status: 'dismissed',
+        trigger: null,
+        dismissedAt,
+        dismissReason: reason,
+      };
+      await writeJson(`designs/${designName}/questions.json`, next);
+      // Emit so agents polling events.jsonl (or blocked on questions wait /
+      // events_wait) know the user closed the modal without answering.
+      await fetch('/api/append', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          path: `designs/${designName}/events.jsonl`,
+          line: `${JSON.stringify({
+            at: dismissedAt,
+            type: 'questions.dismissed',
+            design: designName,
+            reason,
+          })}\n`,
+        }),
+      }).catch(() => {});
+      setData(next);
+      onDismiss?.();
+    },
+    [designName, data, onDismiss],
+  );
 
   useEffect(() => {
-    onTimeoutRef.current = dismiss;
+    onTimeoutRef.current = () => dismiss('idle');
   }, [dismiss]);
 
   const submit = async () => {

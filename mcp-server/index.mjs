@@ -85,7 +85,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
     {
       name: 'design_space_questions_wait',
       description:
-        'Block until user submits questions (status=answered). Timeout seconds default 600.',
+        'Block until the user resolves the questions modal — either by submitting (status=answered) or dismissing without answering (status=dismissed, with dismissReason: "user"|"idle"). Inspect the returned status to branch. Timeout seconds default 600.',
       inputSchema: {
         type: 'object',
         properties: {

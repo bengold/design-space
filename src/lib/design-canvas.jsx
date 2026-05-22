@@ -1423,6 +1423,35 @@ function DCEditable({ value, onChange, style, tag = 'span', onClick }) {
   );
 }
 
+function DCFocusArrow({ dir, label, onClick }) {
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label={label}
+            onClick={(e) => {
+              e.stopPropagation();
+              onClick();
+            }}
+            className="absolute top-1/2 size-11 -translate-y-1/2 rounded-full border-none bg-white/10 text-white/90 hover:bg-white/20 hover:text-white"
+            style={{ [dir]: 28 }}
+          >
+            {dir === 'left' ? (
+              <ChevronLeft className="size-[18px]" />
+            ) : (
+              <ChevronRight className="size-[18px]" />
+            )}
+          </Button>
+        }
+      />
+      <TooltipContent>{label}</TooltipContent>
+    </Tooltip>
+  );
+}
+
 // ─────────────────────────────────────────────────────────────
 // Focus mode — overlay one artboard; ←/→ within section, ↑/↓ across
 // sections, Esc or backdrop click to exit.
@@ -1502,32 +1531,6 @@ function DCFocusOverlay({ entry, sectionMeta, sectionOrder }) {
   const scale = Math.max(0.1, Math.min((vp.w - 200) / width, (vp.h - 260) / height, 2));
 
   const [ddOpen, setDd] = React.useState(false);
-  const Arrow = ({ dir, label, onClick }) => (
-    <Tooltip>
-      <TooltipTrigger
-        render={
-          <Button
-            variant="ghost"
-            size="icon"
-            aria-label={label}
-            onClick={(e) => {
-              e.stopPropagation();
-              onClick();
-            }}
-            className="absolute top-1/2 size-11 -translate-y-1/2 rounded-full border-none bg-white/10 text-white/90 hover:bg-white/20 hover:text-white"
-            style={{ [dir]: 28 }}
-          >
-            {dir === 'left' ? (
-              <ChevronLeft className="size-[18px]" />
-            ) : (
-              <ChevronRight className="size-[18px]" />
-            )}
-          </Button>
-        }
-      />
-      <TooltipContent>{label}</TooltipContent>
-    </Tooltip>
-  );
 
   // Portal to body so position:fixed is the real viewport regardless of any
   // transform on DesignCanvas's ancestors (including the canvas zoom itself).
@@ -1685,8 +1688,8 @@ function DCFocusOverlay({ entry, sectionMeta, sectionOrder }) {
           </div>
         </div>
 
-        <Arrow dir="left" label="Previous artboard" onClick={() => go(-1)} />
-        <Arrow dir="right" label="Next artboard" onClick={() => go(1)} />
+        <DCFocusArrow dir="left" label="Previous artboard" onClick={() => go(-1)} />
+        <DCFocusArrow dir="right" label="Next artboard" onClick={() => go(1)} />
 
         {/* dots — small visual indicator, 24×24 invisible hit area for AA touch */}
         <div

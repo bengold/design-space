@@ -146,6 +146,8 @@ function eventActivityPhrase(ev) {
       return 'Asked a question';
     case 'questions.answered':
       return 'Got your answer';
+    case 'questions.dismissed':
+      return 'Question dismissed';
     case 'design.saved':
     case 'persist.write':
       return 'Saved changes';

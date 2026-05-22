@@ -53,7 +53,7 @@ Two Vite entrypoints; the host loads the preview as an iframe:
 - `Design.jsx` — agent-owned React entry; wraps screens in `<DesignCanvas>` → `<DCSection>` → `<DCArtboard id label width height>`. Imports `DesignCanvas` / `DCSection` / `DCArtboard` from `../../src/lib/design-canvas.jsx`, and `useDesignTweaks` + `<Tweak*>` controls from `../../src/lib/tweaks-panel.jsx`.
 - `tweaks.defaults.json` — agent-owned defaults. Keys must line up with `t.*` reads in `Design.jsx` and with `<Tweak*>` controls; `validate` checks this.
 - `tweaks.json`, `comments.json`, `overrides.json`, `events.jsonl`, `agent-inbox.json` — gitignored runtime state written by the host. Read via CLI/MCP, not by parsing files directly when you can avoid it.
-- `questions.json` — refinement Q&A; status flips to `"answered"` on submit.
+- `questions.json` — refinement Q&A; status flips to `"answered"` on submit or `"dismissed"` (with `dismissReason: "user"|"idle"`) when the user closes the modal without answering. `waitForQuestions` resolves on either status — agents must inspect `status` before reading `answers`.
 - `agent-feedback.md` — merged human feedback for agents, regenerated on submit.
 - `meta.json` — title/description.
 
@@ -71,6 +71,6 @@ When editing the MCP server (`mcp-server/index.mjs` or anything it imports from 
 
 - **Stable artboard `id`s** — `public/.design-canvas.state.json` keys section state on the joined artboard ids (`srcKey`). Renaming/reordering ids in `Design.jsx` resets canvas state.
 - **Tweak key parity** — `tweaks.defaults.json`, the `FALLBACK_DEFAULTS` arg to `useDesignTweaks`, and `<Tweak*>` `path`s must all match, or `validate` fails.
-- **Refinement questions are agent-triggered** — they do not appear on page load. Use `questions ask` then block on `questions wait` (or poll `questions get`); no push notification.
+- **Refinement questions are agent-triggered** — they do not appear on page load. Use `questions ask` then block on `questions wait` (or poll `questions get`); no push notification. `wait` returns on either `answered` or `dismissed`; the host also appends a `questions.dismissed` event to `events.jsonl` on cancel/idle.
 - **Events are the human→agent channel** — every comment/override write appends a line to `events.jsonl`. Poll with `events poll --since <iso>` rather than re-reading whole files.
 - **Don't add unpinned CDN React/Babel in artboards** — Vite bundles modules; keep `Design.jsx` self-contained React.

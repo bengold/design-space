@@ -196,6 +196,13 @@ async function cmdQuestionsWait(name, timeoutSec) {
   try {
     const q = await waitForQuestions(name, timeoutSec);
     console.log(JSON.stringify(q, null, 2));
+    if (q?.status === 'dismissed') {
+      // Surface the no-answer outcome on stderr so script callers can see it
+      // even when stdout is piped, and exit non-zero so naive `&&`-chained
+      // workflows don't blindly proceed as if answers were collected.
+      console.error(`User dismissed the questions modal (reason: ${q.dismissReason || 'user'}).`);
+      process.exit(2);
+    }
   } catch (err) {
     console.error(err.message);
     console.error('User may still have the modal open — check the host or run questions get.');

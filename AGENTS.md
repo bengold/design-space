@@ -277,18 +277,21 @@ The tweaks runtime already handles `__edit_mode_*` postMessage to the host; you 
 - **MCP server:** `npm run mcp` — see [docs/mcp-and-hooks.md](docs/mcp-and-hooks.md) for Cursor config.
 - **Project skill:** `.cursor/skills/design-space/SKILL.md`
 - **New comments/edits:** append to `designs/<name>/events.jsonl`. Poll with `design-space events poll --since <iso>` or MCP `design_space_events_poll`. Do not only re-read the whole repo — use `since` from your last poll.
-- **Event types:** `comment.added`, `override.updated`, `questions.answered`
+- **Event types:** `comment.added`, `override.updated`, `questions.answered`, `questions.dismissed`
 
 ## Refinement questions (agent tool)
 
 Like hosted Claude Design’s `questions_v2`: **you** trigger the modal; it does not appear on first load.
 
 1. Call **`design-space questions ask`** with a question set (host must be open at `design-space url`).
-2. **Block until answered:** `design-space questions wait --design <name>` (polls `questions.json` every 2s; default timeout 10m). Exits `0` and prints full JSON when `status` is `"answered"`.
-3. Or poll manually: `questions get` until `status === "answered"`, or read `designs/<name>/agent-feedback.md` (written on submit).
-4. Continue editing with the `answers` object.
+2. **Block until resolved:** `design-space questions wait --design <name>` (polls `questions.json` every 2s; default timeout 10m). Returns when the user either submits (`status: "answered"`, exit `0`) or closes the modal without answering (`status: "dismissed"`, exit `2`). Always inspect `status` — don't assume answers.
+3. Or poll manually: `questions get` until `status === "answered"` or `"dismissed"`, or read `designs/<name>/agent-feedback.md` (written on submit).
+4. On `answered` → continue editing with the `answers` object. On `dismissed` → don't re-open immediately; ask the user via your normal channel whether to retry, drop the question, or proceed with assumptions.
 
-**Detection contract:** on submit the host sets `questions.json` → `{ "status": "answered", "trigger": null, "answers": { ... }, "answeredAt": "<ISO>" }` and regenerates `agent-feedback.md`. There is no push notification to the agent — use **`questions wait`** or poll **`questions get`**.
+**Detection contract:**
+- **Submit** → `{ "status": "answered", "trigger": null, "answers": { ... }, "answeredAt": "<ISO>" }`, regenerates `agent-feedback.md`, appends `questions.answered` event.
+- **Dismiss** (Cancel button, backdrop click, Esc, or 5-min idle) → `{ "status": "dismissed", "trigger": null, "dismissedAt": "<ISO>", "dismissReason": "user"|"idle" }`, appends `questions.dismissed` event.
+- There is no push notification to the agent — use **`questions wait`** (returns on either status) or poll **`questions get`** / **`events poll`**.
 
 ```bash
 npx design-space questions ask --design demo "$(cat <<'EOF'

@@ -73,6 +73,13 @@ npx design-space questions ask --design demo '{"title":"Refine","questions":[...
 npx design-space questions wait --design demo
 ```
 
+`wait` returns when the user **either** submits or dismisses the modal:
+
+- `status: "answered"` (exit `0`) → use `answers`.
+- `status: "dismissed"` (exit `2`, `dismissReason: "user"|"idle"`) → user closed without answering; don't auto-retry.
+
+A `questions.dismissed` event is also appended to `events.jsonl`.
+
 ## Overrides format
 
 `overrides.json` → `{ "byRef": { "ds-3": { "styles": { "fontSize": "18px", ... }, "cssText": "...", "textContent": "..." } } }`

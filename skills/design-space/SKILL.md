@@ -71,7 +71,12 @@ design_space_questions_ask  { payload: { title: "Refine", questions: [...] } }
 design_space_questions_wait { timeout: 600 }
 ```
 
-The modal does not appear on page load — `ask` is required. `wait` blocks until the user submits.
+The modal does not appear on page load — `ask` is required. `wait` blocks until the user resolves the modal in either direction:
+
+- `status: "answered"` → use `answers` to continue.
+- `status: "dismissed"` (with `dismissReason: "user"` or `"idle"`) → user closed the modal without answering. Don't retry immediately; surface the situation to the user before re-asking.
+
+A `questions.dismissed` event is also appended to `events.jsonl`, so anything blocked on `design_space_events_wait` will unblock too.
 
 ## Overrides format
 

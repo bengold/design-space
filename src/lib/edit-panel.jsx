@@ -112,7 +112,7 @@ const FONT_WEIGHT_VALUES = new Set([
 
 // Returns true when value is valid, or a string error message otherwise.
 // Empty values are treated as "clear" and always pass.
-export function validateStyleValue(key, value) {
+function validateStyleValue(key, value) {
   if (value == null || value === '') return true;
   const v = String(value).trim();
 
@@ -144,7 +144,7 @@ export function validateStyleValue(key, value) {
 // Quick lint pass over a free-form CSS declaration block. Returns null when
 // the text looks OK, or a string error otherwise. Tolerates a trailing
 // declaration with no semicolon (common while typing).
-export function validateCssText(text) {
+function validateCssText(text) {
   if (!text || !text.trim()) return null;
   const s = text.trim();
   let depth = 0;
