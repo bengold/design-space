@@ -15,6 +15,12 @@ import { Send, Trash2, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Field, FieldGroup, FieldLabel } from '@/components/ui/field';
 import { Textarea } from '@/components/ui/textarea';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
 
 import { filterOpenComments } from '../../lib/comment-utils.mjs';
@@ -277,6 +283,8 @@ function CommentPopover({
       const focusable = Array.from(root.querySelectorAll(focusableSelector)).filter(
         (n) => !n.hasAttribute('disabled') && n.offsetParent !== null,
       );
+      // No focusable targets — let Tab pass through to the document so the
+      // user isn't trapped inside an empty popover. Do NOT preventDefault here.
       if (focusable.length === 0) return;
       const first = focusable[0];
       const last = focusable[focusable.length - 1];
@@ -448,31 +456,64 @@ const CommentPin = React.forwardRef(function CommentPin(
 
   if (!pos) return null;
   const isSent = !!comment?.sentToAgent;
+  const excerpt = (comment?.text || '').trim().slice(0, 80);
+  const truncated = (comment?.text || '').trim().length > 80;
+  const tooltipBody = excerpt
+    ? `${excerpt}${truncated ? '…' : ''}`
+    : '(empty comment)';
+  // Format author/timestamp suffix if available; falls back to text-only.
+  let meta = '';
+  if (comment?.author) meta = comment.author;
+  if (comment?.createdAt) {
+    try {
+      const d = new Date(comment.createdAt);
+      if (!Number.isNaN(d.getTime())) {
+        meta = meta ? `${meta} · ${d.toLocaleString()}` : d.toLocaleString();
+      }
+    } catch {
+      /* malformed timestamp — skip */
+    }
+  }
+
   // Background carries identity; border carries non-color state (dashed = sent,
-  // solid = open) so it isn't 1.4.1 color-only.
+  // solid = open) so it isn't 1.4.1 color-only. z-40 sits below the comment
+  // popover (z-[100000]), edit panel sheet (z-50), and above selection overlay
+  // (z-30) — intentional layering, do not change without auditing all four.
   return (
-    <button
-      ref={ref}
-      type="button"
-      role="button"
-      aria-pressed={selected || undefined}
-      aria-label={`Open comment ${index + 1}${isSent ? ', sent to agent' : ''}: ${
-        (comment?.text || '').slice(0, 60) || '(empty)'
-      }`}
-      tabIndex={tabIndex ?? 0}
-      className={cn(
-        'ds-review-ui fixed z-40 grid size-7 -translate-x-1/2 -translate-y-1/2 cursor-pointer place-items-center rounded-full border-2 bg-primary text-[11px] font-bold text-primary-foreground shadow-md transition-transform',
-        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background',
-        isSent ? 'border-dashed border-primary-foreground/70' : 'border-background',
-        selected &&
-          'ring-2 ring-primary ring-offset-2 ring-offset-background scale-110',
-      )}
-      style={{ left: pos.left, top: pos.top }}
-      onClick={onSelect}
-      onKeyDown={onKeyDown}
-    >
-      <span aria-hidden>{index + 1}</span>
-    </button>
+    <TooltipProvider delayDuration={150}>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            ref={ref}
+            type="button"
+            role="button"
+            aria-pressed={selected || undefined}
+            aria-label={`Open comment ${index + 1}${isSent ? ', sent to agent' : ''}: ${
+              (comment?.text || '').slice(0, 60) || '(empty)'
+            }`}
+            tabIndex={tabIndex ?? 0}
+            className={cn(
+              'ds-review-ui fixed z-40 grid size-7 -translate-x-1/2 -translate-y-1/2 cursor-pointer place-items-center rounded-full border-2 bg-primary text-[11px] font-bold text-primary-foreground shadow-md transition-transform',
+              'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background',
+              isSent
+                ? 'border-2 border-dashed border-primary-foreground'
+                : 'border-background',
+              selected &&
+                'ring-2 ring-primary ring-offset-2 ring-offset-background scale-110',
+            )}
+            style={{ left: pos.left, top: pos.top }}
+            onClick={onSelect}
+            onKeyDown={onKeyDown}
+          >
+            <span aria-hidden>{index + 1}</span>
+          </button>
+        </TooltipTrigger>
+        <TooltipContent side="top" align="center" className="max-w-[260px]">
+          <p className="text-xs leading-snug">{tooltipBody}</p>
+          {meta && <p className="mt-1 text-[10px] text-muted-foreground">{meta}</p>}
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
   );
 });
 
@@ -537,19 +578,42 @@ function ModeHint({ commentMode, hasSelection }) {
   // Tethered to the bottom-left of the canvas viewport so the hint associates
   // with the active mode. Reveal progressively: 1–2 primary hints inline
   // based on whether the user has selected an element; expand to the full
-  // chord list on hover. A verbose description is exposed to screen readers
-  // via sr-only.
+  // chord list on hover OR keyboard focus. A verbose description is exposed
+  // to screen readers as a child of the region so it forms part of the
+  // accessible name.
   const [expanded, setExpanded] = useState(false);
+  const wrapperRef = useRef(null);
 
+  // Tokenized primary line — each token carries an explicit type so we don't
+  // need a regex to decide kbd vs text. Keeps the rendering loop trivial.
   let primary;
   if (commentMode) {
     primary = hasSelection
-      ? ['Enter', 'to comment', '·', '↑↓←→', 'walk tree']
-      : ['Click element', '·', 'drag box', 'to select'];
+      ? [
+          { type: 'kbd', text: 'Enter' },
+          { type: 'text', text: 'to comment' },
+          { type: 'sep', text: '·' },
+          { type: 'kbd', text: '↑↓←→' },
+          { type: 'text', text: 'walk tree' },
+        ]
+      : [
+          { type: 'text', text: 'Click element' },
+          { type: 'sep', text: '·' },
+          { type: 'text', text: 'drag box' },
+          { type: 'text', text: 'to select' },
+        ];
   } else {
     primary = hasSelection
-      ? ['Edit in panel', '·', '↑↓←→', 'walk tree']
-      : ['Click element', 'to inspect'];
+      ? [
+          { type: 'text', text: 'Edit in panel' },
+          { type: 'sep', text: '·' },
+          { type: 'kbd', text: '↑↓←→' },
+          { type: 'text', text: 'walk tree' },
+        ]
+      : [
+          { type: 'text', text: 'Click element' },
+          { type: 'text', text: 'to inspect' },
+        ];
   }
 
   const allChords = commentMode
@@ -569,21 +633,47 @@ function ModeHint({ commentMode, hasSelection }) {
 
   const verbose = commentMode
     ? 'Arrow up selects the parent element. Arrow down selects the child. Left and right arrows select siblings. Shift+click for multi-select. Drag to make a selection box. Press Enter to comment on the current selection.'
-    : 'Click an element to inspect. Arrow keys navigate between elements. Edits show a live preview. Press Apply to save.';
+    : 'Click an element to inspect. Arrow keys navigate between elements. Edits show a live preview and save automatically.';
+
+  const handleKeyDown = (e) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      setExpanded((v) => !v);
+    } else if (e.key === 'Escape') {
+      if (expanded) {
+        e.preventDefault();
+        setExpanded(false);
+        // Blur so focus doesn't keep the panel open via onFocus.
+        try {
+          wrapperRef.current?.blur();
+        } catch {
+          /* element gone */
+        }
+      }
+    }
+  };
 
   return (
     <div
-      role="status"
-      className="ds-review-ui fixed bottom-4 left-4 z-40"
+      ref={wrapperRef}
+      role="region"
+      aria-label="Mode shortcuts"
+      tabIndex={0}
+      aria-expanded={expanded}
+      aria-haspopup="dialog"
+      className="ds-review-ui fixed bottom-4 left-4 z-40 rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
       onMouseEnter={() => setExpanded(true)}
       onMouseLeave={() => setExpanded(false)}
+      onFocus={() => setExpanded(true)}
+      onBlur={() => setExpanded(false)}
+      onKeyDown={handleKeyDown}
     >
       <div className="flex flex-col items-start gap-1.5">
         {expanded && (
           <div
             role="group"
             aria-label="Keyboard shortcuts"
-            className="flex flex-col gap-1 rounded-lg border border-border bg-background/95 px-3 py-2 text-[11px] text-muted-foreground shadow-md backdrop-blur-sm"
+            className="flex flex-col gap-1 rounded-lg border border-border bg-background/95 px-3 py-2 text-[11px] text-muted-foreground shadow-md backdrop-blur-sm motion-safe:transition-opacity"
           >
             {allChords.map(([k, label]) => (
               <div key={k} className="flex items-center gap-2">
@@ -596,26 +686,30 @@ function ModeHint({ commentMode, hasSelection }) {
           </div>
         )}
         <div className="flex items-center gap-1.5 rounded-full border border-border bg-background/95 px-3 py-1.5 text-[11px] text-muted-foreground shadow-sm backdrop-blur-sm">
-          {primary.map((tok, i) =>
-            tok === '·' ? (
-              <span key={i} aria-hidden className="opacity-40">
-                ·
-              </span>
-            ) : /^[↑↓←→]+$|^Enter$|^Shift\+click$/.test(tok) ? (
-              <kbd
-                key={i}
-                className="rounded border border-border bg-muted px-1.5 py-0.5 font-mono text-[10px] text-foreground"
-              >
-                {tok}
-              </kbd>
-            ) : (
-              <span key={i}>{tok}</span>
-            ),
-          )}
+          {primary.map((tok, i) => {
+            if (tok.type === 'sep') {
+              return (
+                <span key={i} aria-hidden className="opacity-40">
+                  {tok.text}
+                </span>
+              );
+            }
+            if (tok.type === 'kbd') {
+              return (
+                <kbd
+                  key={i}
+                  className="rounded border border-border bg-muted px-1.5 py-0.5 font-mono text-[10px] text-foreground"
+                >
+                  {tok.text}
+                </kbd>
+              );
+            }
+            return <span key={i}>{tok.text}</span>;
+          })}
           <span aria-hidden className="ml-1 opacity-40">
             ·
           </span>
-          <span className="text-muted-foreground/60">hover for more</span>
+          <span className="text-muted-foreground/60">hover or focus for more</span>
         </div>
       </div>
       <span className="sr-only">{verbose}</span>

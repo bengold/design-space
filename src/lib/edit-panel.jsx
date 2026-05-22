@@ -201,10 +201,31 @@ function shorthandPreview(styles, keys, fallbackUnit = 'px') {
 // ─── field shell ──────────────────────────────────────────────────────────────
 
 const ROW_CLS =
-  'flex h-9 items-center gap-2 rounded-lg border border-input bg-background px-3 text-sm focus-within:ring-2 focus-within:ring-ring focus-within:border-ring';
+  'group/row flex h-9 items-center gap-2 rounded-lg border border-input bg-background px-3 text-sm focus-within:ring-2 focus-within:ring-ring focus-within:border-ring';
 const ROW_INVALID_CLS = 'border-destructive ring-1 ring-destructive/30';
 
-function FieldShell({ inputId, label, children, className, invalid = false, errorId }) {
+// Reset affordance — appears on row hover/focus. Calling onReset should emit
+// '' / null to setStyle so the override field is deleted and the value falls
+// back to the computed style.
+function ResetButton({ onReset, label }) {
+  if (!onReset) return null;
+  return (
+    <button
+      type="button"
+      onClick={(e) => {
+        e.stopPropagation();
+        onReset();
+      }}
+      title={`Reset ${label ?? 'value'} to default`}
+      aria-label={`Reset ${label ?? 'value'} to default`}
+      className="shrink-0 rounded px-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground opacity-0 transition-opacity hover:text-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring group-focus-within/row:opacity-100 group-hover/row:opacity-100"
+    >
+      Reset
+    </button>
+  );
+}
+
+function FieldShell({ inputId, label, children, className, invalid = false, errorId, onReset }) {
   return (
     <div
       className={cn(ROW_CLS, invalid && ROW_INVALID_CLS, className)}
@@ -219,6 +240,7 @@ function FieldShell({ inputId, label, children, className, invalid = false, erro
         </label>
       )}
       {children}
+      <ResetButton onReset={onReset} label={label} />
       {invalid && errorId && (
         <span id={errorId} role="alert" className="sr-only">
           Invalid value
@@ -277,7 +299,7 @@ function useDraft(value, validate) {
   return { draft, setDraft, error };
 }
 
-function NumericRow({ label, value, onChange, unit = 'px', full = false, styleKey }) {
+function NumericRow({ label, value, onChange, onReset, unit = 'px', full = false, styleKey, min, max }) {
   const id = useId();
   const errorId = `${id}-err`;
   const { num, unit: u } = splitUnit(value, unit);
@@ -312,7 +334,10 @@ function NumericRow({ label, value, onChange, unit = 'px', full = false, styleKe
     e.preventDefault();
     const step = e.shiftKey ? 10 : e.altKey ? 0.1 : 1;
     const direction = e.key === 'ArrowUp' ? 1 : -1;
-    const next = current + step * direction;
+    let next = current + step * direction;
+    // Clamp to min/max if provided so arrow walks don't overshoot.
+    if (Number.isFinite(min) && next < min) next = min;
+    if (Number.isFinite(max) && next > max) next = max;
     // Round to 4 decimals to avoid float drift (1.1 - 0.1 = 1.0000000000000002).
     const rounded = Math.round(next * 10000) / 10000;
     handleChange(String(rounded));
@@ -325,6 +350,7 @@ function NumericRow({ label, value, onChange, unit = 'px', full = false, styleKe
       className={full ? 'w-full' : undefined}
       invalid={invalid}
       errorId={invalid ? errorId : undefined}
+      onReset={onReset}
     >
       <FieldInput
         id={id}
@@ -343,7 +369,7 @@ function NumericRow({ label, value, onChange, unit = 'px', full = false, styleKe
   );
 }
 
-function TextRow({ label, value, onChange, placeholder, full = false, mono = false, styleKey }) {
+function TextRow({ label, value, onChange, onReset, placeholder, full = false, mono = false, styleKey }) {
   const id = useId();
   const errorId = `${id}-err`;
   const validate = styleKey ? (v) => validateStyleValue(styleKey, v) : null;
@@ -364,6 +390,7 @@ function TextRow({ label, value, onChange, placeholder, full = false, mono = fal
       className={full ? 'w-full' : undefined}
       invalid={invalid}
       errorId={invalid ? errorId : undefined}
+      onReset={onReset}
     >
       <FieldInput
         id={id}
@@ -378,7 +405,7 @@ function TextRow({ label, value, onChange, placeholder, full = false, mono = fal
   );
 }
 
-function SelectRow({ label, value, options, onChange, full = false }) {
+function SelectRow({ label, value, options, onChange, onReset, full = false }) {
   const id = useId();
   // Normalize: strings → {label, value}; headers stay as-is.
   const opts = options.map((o) => (typeof o === 'string' ? { label: o, value: o } : o));
@@ -397,7 +424,12 @@ function SelectRow({ label, value, options, onChange, full = false }) {
     }
   }
   return (
-    <FieldShell inputId={id} label={label} className={cn('relative', full && 'w-full')}>
+    <FieldShell
+      inputId={id}
+      label={label}
+      className={cn('relative', full && 'w-full')}
+      onReset={onReset}
+    >
       <select
         id={id}
         value={value ?? ''}
@@ -433,13 +465,13 @@ function SelectRow({ label, value, options, onChange, full = false }) {
   );
 }
 
-// Lazy-scan once when shown — getDocumentColors is cheap (~500 nodes) but no
-// reason to redo it on every keystroke in the picker.
-function DocumentColorSwatches({ onPick }) {
+// Lazy-scan when shown — getDocumentColors walks the live DOM, so re-scan
+// whenever `overridesDep` changes to reflect newly-applied overrides.
+function DocumentColorSwatches({ onPick, overridesDep }) {
   const [colors, setColors] = useState(null);
   useEffect(() => {
     setColors(getDocumentColors());
-  }, []);
+  }, [overridesDep]);
   if (!colors?.length) return null;
   return (
     <div className="mt-2 flex flex-wrap gap-1" role="group" aria-label="Colors used in this document">
@@ -450,7 +482,7 @@ function DocumentColorSwatches({ onPick }) {
           aria-label={`Use ${c}`}
           title={c}
           onClick={() => onPick(c)}
-          className="size-6 shrink-0 rounded border border-border focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
+          className="size-6 shrink-0 rounded border border-border ring-1 ring-foreground/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
           style={{
             backgroundImage:
               'linear-gradient(45deg, #ccc 25%, transparent 25%), linear-gradient(-45deg, #ccc 25%, transparent 25%), linear-gradient(45deg, transparent 75%, #ccc 75%), linear-gradient(-45deg, transparent 75%, #ccc 75%)',
@@ -465,7 +497,7 @@ function DocumentColorSwatches({ onPick }) {
   );
 }
 
-function ColorRow({ label, value, onChange, full = false }) {
+function ColorRow({ label, value, onChange, onReset, overridesDep, full = false }) {
   const id = useId();
   const errorId = `${id}-err`;
   const hex = colorToHex(value);
@@ -503,6 +535,7 @@ function ColorRow({ label, value, onChange, full = false }) {
       className={full ? 'w-full' : undefined}
       invalid={invalid}
       errorId={invalid ? errorId : undefined}
+      onReset={onReset}
     >
       <Popover>
         <PopoverTrigger
@@ -510,7 +543,7 @@ function ColorRow({ label, value, onChange, full = false }) {
             <button
               type="button"
               {...props}
-              className="size-4 shrink-0 rounded border border-foreground/20 shadow-[inset_0_0_0_1px_rgb(255_255_255_/_0.5)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
+              className="size-4 shrink-0 rounded border border-foreground/20 ring-1 ring-foreground/15 shadow-[inset_0_0_0_1px_rgb(255_255_255_/_0.5)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
               style={{
                 backgroundImage:
                   'linear-gradient(45deg, #ccc 25%, transparent 25%), linear-gradient(-45deg, #ccc 25%, transparent 25%), linear-gradient(45deg, transparent 75%, #ccc 75%), linear-gradient(-45deg, transparent 75%, #ccc 75%)',
@@ -529,8 +562,11 @@ function ColorRow({ label, value, onChange, full = false }) {
           role="dialog"
           aria-label={`${label} color picker — use the hex input for keyboard entry`}
         >
+          <div className="mb-1.5 text-xs text-muted-foreground">
+            Pick visually, or type a hex value below
+          </div>
           <HexAlphaColorPicker color={hex} onChange={handlePicker} />
-          <DocumentColorSwatches onPick={handlePicker} />
+          <DocumentColorSwatches onPick={handlePicker} overridesDep={overridesDep} />
         </PopoverContent>
       </Popover>
       <FieldInput
@@ -546,7 +582,7 @@ function ColorRow({ label, value, onChange, full = false }) {
   );
 }
 
-function OpacityRow({ value, onChange }) {
+function OpacityRow({ value, onChange, onReset }) {
   const id = useId();
   const pct = opacityPercent(value);
   // Base UI's Slider passes a number for single-thumb, array for range. Handle
@@ -558,7 +594,7 @@ function OpacityRow({ value, onChange }) {
     onChange(String(clamped));
   };
   return (
-    <FieldShell inputId={id} label="Opacity" className="w-full">
+    <FieldShell inputId={id} label="Opacity" className="w-full" onReset={onReset}>
       <Slider
         id={id}
         aria-label="Opacity"
@@ -615,6 +651,7 @@ function SpacingBlock({ label, keyForSide, valueFor, setStyle, unit = 'px' }) {
                 label={side}
                 value={valueFor(key)}
                 onChange={(v) => setStyle(key, v)}
+                onReset={() => setStyle(key, '')}
                 unit={unit}
                 styleKey={key}
               />
@@ -916,7 +953,10 @@ function EditPanelBody({ el, overrides, onApply, onClose }) {
 
   const previewStyle = useLivePreview(ref, el, styles, cssText);
 
-  const inDocFonts = useMemo(() => getDocumentFonts(), [el]);
+  // Both font + color scans walk the live DOM, so they must recompute when any
+  // override (anywhere in the doc) changes — not just when `el` changes.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const inDocFonts = useMemo(() => getDocumentFonts(), [el, overrides]);
   const { options: fontOptions, pickFont } = useFontOptions(styleOf('fontFamily'), inDocFonts);
 
   return (
@@ -937,41 +977,49 @@ function EditPanelBody({ el, overrides, onApply, onClose }) {
                 pickFont(v);
                 setStyle('fontFamily', v);
               }}
+              onReset={() => setStyle('fontFamily', '')}
             />
             <div className="grid grid-cols-2 gap-2">
               <NumericRow
-                label="Size"
+                label="Font size"
                 value={styleOf('fontSize')}
                 onChange={(v) => setStyle('fontSize', v)}
+                onReset={() => setStyle('fontSize', '')}
                 styleKey="fontSize"
               />
               <SelectRow
-                label="Weight"
+                label="Font weight"
                 value={styleOf('fontWeight')}
                 options={WEIGHT_OPTIONS}
                 onChange={(v) => setStyle('fontWeight', v)}
+                onReset={() => setStyle('fontWeight', '')}
               />
               <ColorRow
-                label="Color"
+                label="Text color"
                 value={styleOf('color')}
                 onChange={(v) => setStyle('color', v)}
+                onReset={() => setStyle('color', '')}
+                overridesDep={overrides}
               />
               <SelectRow
-                label="Align"
+                label="Text align"
                 value={styleOf('textAlign')}
                 options={ALIGN_OPTIONS}
                 onChange={(v) => setStyle('textAlign', v)}
+                onReset={() => setStyle('textAlign', '')}
               />
               <TextRow
-                label="Line Height"
+                label="Line height"
                 value={styleOf('lineHeight')}
                 onChange={(v) => setStyle('lineHeight', v)}
+                onReset={() => setStyle('lineHeight', '')}
                 styleKey="lineHeight"
               />
               <NumericRow
                 label="Tracking"
                 value={styleOf('letterSpacing')}
                 onChange={(v) => setStyle('letterSpacing', v)}
+                onReset={() => setStyle('letterSpacing', '')}
                 styleKey="letterSpacing"
               />
             </div>
@@ -984,12 +1032,14 @@ function EditPanelBody({ el, overrides, onApply, onClose }) {
                 label="Width"
                 value={styleOf('width')}
                 onChange={(v) => setStyle('width', v)}
+                onReset={() => setStyle('width', '')}
                 styleKey="width"
               />
               <NumericRow
                 label="Height"
                 value={styleOf('height')}
                 onChange={(v) => setStyle('height', v)}
+                onReset={() => setStyle('height', '')}
                 styleKey="height"
               />
             </div>
@@ -1003,6 +1053,7 @@ function EditPanelBody({ el, overrides, onApply, onClose }) {
               value={styleOf('display')}
               options={DISPLAY_OPTIONS}
               onChange={(v) => setStyle('display', v)}
+              onReset={() => setStyle('display', '')}
             />
             {FLEX_OR_GRID.has(styleOf('display')) ? (
               <div className="grid grid-cols-2 gap-2">
@@ -1010,6 +1061,7 @@ function EditPanelBody({ el, overrides, onApply, onClose }) {
                   label="Gap"
                   value={styleOf('gap')}
                   onChange={(v) => setStyle('gap', v)}
+                  onReset={() => setStyle('gap', '')}
                   styleKey="gap"
                 />
                 <SelectRow
@@ -1017,18 +1069,21 @@ function EditPanelBody({ el, overrides, onApply, onClose }) {
                   value={styleOf('flexDirection')}
                   options={DIRECTION_OPTIONS}
                   onChange={(v) => setStyle('flexDirection', v)}
+                  onReset={() => setStyle('flexDirection', '')}
                 />
                 <SelectRow
                   label="Justify"
                   value={styleOf('justifyContent')}
                   options={JUSTIFY_OPTIONS}
                   onChange={(v) => setStyle('justifyContent', v)}
+                  onReset={() => setStyle('justifyContent', '')}
                 />
                 <SelectRow
-                  label="Align"
+                  label="Align items"
                   value={styleOf('alignItems')}
                   options={ALIGN_ITEMS_OPTIONS}
                   onChange={(v) => setStyle('alignItems', v)}
+                  onReset={() => setStyle('alignItems', '')}
                 />
               </div>
             ) : null}
@@ -1045,12 +1100,14 @@ function EditPanelBody({ el, overrides, onApply, onClose }) {
                   label="Left"
                   value={styleOf('left')}
                   onChange={(v) => setStyle('left', v)}
+                  onReset={() => setStyle('left', '')}
                   styleKey="left"
                 />
                 <NumericRow
                   label="Top"
                   value={styleOf('top')}
                   onChange={(v) => setStyle('top', v)}
+                  onReset={() => setStyle('top', '')}
                   styleKey="top"
                 />
               </div>
@@ -1067,8 +1124,17 @@ function EditPanelBody({ el, overrides, onApply, onClose }) {
                 setStyle('backgroundColor', v);
                 setStyle('background', '');
               }}
+              onReset={() => {
+                setStyle('backgroundColor', '');
+                setStyle('background', '');
+              }}
+              overridesDep={overrides}
             />
-            <OpacityRow value={styleOf('opacity')} onChange={(v) => setStyle('opacity', v)} />
+            <OpacityRow
+              value={styleOf('opacity')}
+              onChange={(v) => setStyle('opacity', v)}
+              onReset={() => setStyle('opacity', '')}
+            />
             <SpacingBlock
               label="Padding"
               keyForSide={(s) => `padding${s}`}
@@ -1089,22 +1155,26 @@ function EditPanelBody({ el, overrides, onApply, onClose }) {
             />
             <div className="grid grid-cols-2 gap-2">
               <SelectRow
-                label="Style"
+                label="Border style"
                 value={styleOf('borderStyle')}
                 options={BORDER_STYLE_OPTIONS}
                 onChange={(v) => setStyle('borderStyle', v)}
+                onReset={() => setStyle('borderStyle', '')}
               />
               <ColorRow
-                label="Color"
+                label="Border color"
                 value={styleOf('borderColor')}
                 onChange={(v) => setStyle('borderColor', v)}
+                onReset={() => setStyle('borderColor', '')}
+                overridesDep={overrides}
               />
             </div>
             <NumericRow
-              label="Border Radius"
+              label="Border radius"
               full
               value={styleOf('borderRadius')}
               onChange={(v) => setStyle('borderRadius', v)}
+              onReset={() => setStyle('borderRadius', '')}
               styleKey="borderRadius"
             />
           </section>
@@ -1116,6 +1186,7 @@ function EditPanelBody({ el, overrides, onApply, onClose }) {
               full
               value={styleOf('boxShadow')}
               onChange={(v) => setStyle('boxShadow', v)}
+              onReset={() => setStyle('boxShadow', '')}
               placeholder="0 1px 2px rgba(0,0,0,.1)"
             />
             <TextRow
@@ -1123,6 +1194,7 @@ function EditPanelBody({ el, overrides, onApply, onClose }) {
               full
               value={styleOf('transform')}
               onChange={(v) => setStyle('transform', v)}
+              onReset={() => setStyle('transform', '')}
               placeholder="scale(1.05)"
             />
           </section>
@@ -1215,7 +1287,10 @@ function useIsRawPage() {
 
 function CanvasPanelBody({ canvasStyles, onApplyCanvas }) {
   const [draft, setDraft] = useState(canvasStyles || {});
-  const inDocFonts = useMemo(() => getDocumentFonts(), []);
+  // getDocumentFonts walks the live DOM, so recompute when canvasStyles change
+  // (e.g. font swapped via a different control on a different surface).
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const inDocFonts = useMemo(() => getDocumentFonts(), [canvasStyles]);
   const { options: canvasFontOptions, pickFont } = useFontOptions(draft.fontFamily, inDocFonts);
   const isRawPage = useIsRawPage();
 
@@ -1273,6 +1348,8 @@ function CanvasPanelBody({ canvasStyles, onApplyCanvas }) {
             full
             value={draft.backgroundColor}
             onChange={(v) => set('backgroundColor', v)}
+            onReset={() => set('backgroundColor', '')}
+            overridesDep={canvasStyles}
           />
           <SelectRow
             label="Font"
@@ -1283,15 +1360,24 @@ function CanvasPanelBody({ canvasStyles, onApplyCanvas }) {
               pickFont(v);
               set('fontFamily', v);
             }}
+            onReset={() => set('fontFamily', '')}
           />
           <NumericRow
             label="Base size"
             full
             value={draft.fontSize}
             onChange={(v) => set('fontSize', v)}
+            onReset={() => set('fontSize', '')}
             styleKey="fontSize"
           />
-          <ColorRow label="Text color" full value={draft.color} onChange={(v) => set('color', v)} />
+          <ColorRow
+            label="Text color"
+            full
+            value={draft.color}
+            onChange={(v) => set('color', v)}
+            onReset={() => set('color', '')}
+            overridesDep={canvasStyles}
+          />
         </section>
       </div>
     </ScrollArea>
@@ -1308,6 +1394,44 @@ export function EditPanel({
   onClearSelection,
   onClose,
 }) {
+  // Focus restore (#28): capture the element that had focus when the panel
+  // opened (e.g. the toolbar Edit toggle), then restore it before firing
+  // onClose so the parent's __edit_panel_dismissed message arrives after
+  // focus is already back on the trigger.
+  const focusReturnRef = useRef(null);
+  useEffect(() => {
+    if (open) {
+      const active = typeof document !== 'undefined' ? document.activeElement : null;
+      // Don't capture body or null — only capture real focusable triggers.
+      if (active && active !== document.body) focusReturnRef.current = active;
+    } else {
+      focusReturnRef.current = null;
+    }
+  }, [open]);
+
+  const handleClose = () => {
+    const target = focusReturnRef.current;
+    if (target && typeof target.focus === 'function') {
+      try {
+        target.focus();
+      } catch {
+        /* element may be detached */
+      }
+    }
+    focusReturnRef.current = null;
+    onClose();
+  };
+
+  // Debounced announce text (#33): keep the visible label live, but only
+  // update the role="status" content once selection stops changing for 250ms.
+  // That prevents arrow-walks from flooding the screen reader.
+  const visibleDescription = el ? describeElForHeader(el) : '';
+  const [announcedDescription, setAnnouncedDescription] = useState(visibleDescription);
+  useEffect(() => {
+    const t = setTimeout(() => setAnnouncedDescription(visibleDescription), 250);
+    return () => clearTimeout(t);
+  }, [visibleDescription]);
+
   // Sheet stays open as long as Edit mode is on. Closing fires ONLY when the
   // user clicks the X (closePress) or the host toggles Edit off
   // (imperativeAction). Base UI's Dialog would otherwise auto-close on
@@ -1320,7 +1444,7 @@ export function EditPanel({
       onOpenChange={(o, details) => {
         if (o) return;
         const reason = details?.reason;
-        if (reason === 'closePress' || reason === 'imperativeAction') onClose();
+        if (reason === 'closePress' || reason === 'imperativeAction') handleClose();
       }}
       modal={false}
       disablePointerDismissal
@@ -1332,18 +1456,24 @@ export function EditPanel({
         className="ds-review-ui flex w-[340px] flex-col gap-0 p-0 sm:w-[360px]"
       >
         <div className="flex items-center justify-between border-b border-border px-4 py-3">
-          <div className="min-w-0 flex-1">
+          {/* aria-live on the wrapper, not the h2 itself, so the heading swap
+              ("Edit element" ↔ "Edit canvas") is announced politely. */}
+          <div className="min-w-0 flex-1" aria-live="polite">
             <h2 className="text-sm font-semibold text-foreground">
               {el ? 'Edit element' : 'Edit canvas'}
             </h2>
             {el && (
-              <div
-                role="status"
-                aria-live="polite"
-                className="truncate font-mono text-[11px] text-muted-foreground"
-              >
-                {describeElForHeader(el)}
-              </div>
+              <>
+                {/* Visible label updates instantly for sighted users… */}
+                <div aria-hidden className="truncate font-mono text-[11px] text-muted-foreground">
+                  {visibleDescription}
+                </div>
+                {/* …but the announced label is debounced 250ms so arrow-walks
+                    don't flood AT with intermediate selections. */}
+                <div role="status" aria-live="polite" className="sr-only">
+                  {announcedDescription}
+                </div>
+              </>
             )}
           </div>
           <div className="flex items-center gap-1">
@@ -1359,7 +1489,7 @@ export function EditPanel({
             )}
             <button
               type="button"
-              onClick={onClose}
+              onClick={handleClose}
               aria-label="Close edit panel"
               className="grid size-8 place-items-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >
@@ -1369,7 +1499,7 @@ export function EditPanel({
         </div>
 
         {el ? (
-          <EditPanelBody el={el} overrides={overrides} onApply={onApply} onClose={onClose} />
+          <EditPanelBody el={el} overrides={overrides} onApply={onApply} onClose={handleClose} />
         ) : (
           <CanvasPanelBody canvasStyles={canvasStyles} onApplyCanvas={onApplyCanvas} />
         )}

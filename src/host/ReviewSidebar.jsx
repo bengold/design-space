@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { ChevronDown, Copy, RefreshCw, Send, Trash2 } from 'lucide-react';
 import { filterOpenComments } from '../../lib/comment-utils.mjs';
 import { fetchCommentsBundle } from './commentApi.js';
@@ -42,38 +42,35 @@ function CommentRow({ comment, selected, onSelect, onSend, onDelete, dimmed }) {
   const ctx = comment.contexts?.[0] || comment.context;
   const canSend = status === 'open';
   const canDelete = status !== 'resolved';
+  const excerpt = (comment.text || '').slice(0, 80) || '(empty)';
   return (
-    <div
-      role="button"
-      tabIndex={0}
-      aria-pressed={selected || undefined}
-      aria-label={`${status} comment: ${(comment.text || '').slice(0, 80) || '(empty)'}`}
-      onClick={() => onSelect?.(comment.id)}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter' || e.key === ' ') {
-          e.preventDefault();
-          onSelect?.(comment.id);
-        }
-      }}
+    <article
+      aria-current={selected ? 'true' : undefined}
       className={cn(
-        'group cursor-pointer rounded-lg border p-2.5 text-sm transition-colors',
-        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1',
+        'group relative rounded-lg border p-2.5 text-sm transition-colors',
+        'focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-1',
         selected ? 'border-primary/40 bg-primary/5' : 'border-border bg-card hover:bg-muted/60',
         dimmed && 'opacity-70',
       )}
     >
-      <div className="mb-1.5 flex items-center justify-between gap-2">
+      {/* Row-level open affordance — covers the whole card behind the action buttons */}
+      <button
+        type="button"
+        aria-label={`Open ${status} comment: ${excerpt}`}
+        onClick={() => onSelect?.(comment.id)}
+        className={cn(
+          'absolute inset-0 z-0 cursor-pointer rounded-lg',
+          'focus:outline-none focus-visible:outline-none',
+        )}
+      />
+      <div className="relative z-10 mb-1.5 flex items-center justify-between gap-2 pointer-events-none">
         <StatusBadge status={status} />
-        <div
-          className="flex items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100"
-          onClick={(e) => e.stopPropagation()}
-        >
+        <div className="pointer-events-auto flex items-center gap-0.5 opacity-60 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
           {canSend && (
             <Button
               variant="ghost"
               size="icon-xs"
-              aria-label="Send this comment to the agent"
-              title="Send this comment to the agent"
+              aria-label="Send to agent"
               onClick={() => onSend?.(comment.id)}
             >
               <Send />
@@ -83,8 +80,7 @@ function CommentRow({ comment, selected, onSelect, onSend, onDelete, dimmed }) {
             <Button
               variant="ghost"
               size="icon-xs"
-              aria-label="Delete this comment"
-              title="Delete this comment"
+              aria-label="Delete"
               onClick={() => onDelete?.(comment.id)}
             >
               <Trash2 />
@@ -94,16 +90,18 @@ function CommentRow({ comment, selected, onSelect, onSend, onDelete, dimmed }) {
       </div>
       <div
         className={cn(
-          'leading-snug text-foreground',
+          'relative z-0 leading-snug text-foreground pointer-events-none',
           status === 'resolved' && 'line-through text-muted-foreground',
         )}
       >
         {comment.text}
       </div>
       {ctx?.artboardLabel && (
-        <div className="mt-1.5 text-[11px] text-muted-foreground">{ctx.artboardLabel}</div>
+        <div className="relative z-0 mt-1.5 text-[11px] text-muted-foreground pointer-events-none">
+          {ctx.artboardLabel}
+        </div>
       )}
-    </div>
+    </article>
   );
 }
 
@@ -121,13 +119,23 @@ export default function ReviewSidebar({
 }) {
   const [comments, setComments] = useState(bridgeComments || []);
 
+  // Ref-stabilize callbacks so reload + mount effects don't churn when parents pass new prop identities.
+  const onCommentsChangeRef = useRef(onCommentsChange);
+  const onOpenRef = useRef(onOpen);
+  useEffect(() => {
+    onCommentsChangeRef.current = onCommentsChange;
+  }, [onCommentsChange]);
+  useEffect(() => {
+    onOpenRef.current = onOpen;
+  }, [onOpen]);
+
   const reload = useCallback(async () => {
     if (!designName) return;
     const bundle = await fetchCommentsBundle(designName);
     setComments(bundle.comments);
-    onCommentsChange?.(bundle.comments);
+    onCommentsChangeRef.current?.(bundle.comments);
     return bundle;
-  }, [designName, onCommentsChange]);
+  }, [designName]);
 
   useEffect(() => {
     setComments(bridgeComments || []);
@@ -135,8 +143,10 @@ export default function ReviewSidebar({
 
   useEffect(() => {
     reload();
-    onOpen?.();
-  }, [reload, onOpen]);
+    onOpenRef.current?.();
+    // Only re-run when the active design changes; callbacks are read via refs.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [designName]);
 
   const open = filterOpenComments(comments);
   const resolved = comments.filter((c) => c.status === 'resolved');
@@ -212,7 +222,7 @@ export default function ReviewSidebar({
             title={`Send ${unsentCount} unsent comment${unsentCount === 1 ? '' : 's'} to the agent`}
           >
             <Send />
-            <span>Send {unsentCount} to agent</span>
+            <span>Send {unsentCount} comment{unsentCount === 1 ? '' : 's'} to agent</span>
           </Button>
         )}
         <Button variant="outline" size="sm" onClick={onCopyExport}>

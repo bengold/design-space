@@ -412,6 +412,12 @@ function Folder({ title, children }) {
         aria-controls={regionId}
         className="flex items-center gap-1 rounded-sm text-left text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
       >
+        {/*
+          Disclosure chevron — open ▼ rotates to closed ▶ ("expand into").
+          ChevronDown is ⌄ pointing south; CSS -rotate-90 spins it
+          counter-clockwise so the tip lands east (▶). rotate-90 would
+          point west (◀), reading as "back" — avoid.
+        */}
         <ChevronDown
           aria-hidden
           className={cn('size-3 transition-transform', open ? 'rotate-0' : '-rotate-90')}
@@ -434,10 +440,29 @@ export function TweaksPanelRoot({ position = 'bottom-right' }) {
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(false);
   const titleId = useId();
+  // Capture the host-toolbar element that had focus when the panel was
+  // activated, so Escape (or close-button) can restore focus to it rather
+  // than dropping to <body>. Same pattern as CommentPopover in
+  // design-review.jsx. Lives in window.parent (the host frame) since
+  // activation arrives via postMessage from the toolbar trigger.
+  const triggerRef = useRef(null);
 
   const close = useCallback(() => {
     setOpen(false);
     if (window.parent) window.parent.postMessage({ type: '__edit_mode_dismissed' }, '*');
+    // Restore focus to the toolbar trigger. The element lives in the host
+    // frame; we postMessage and let the host re-focus it (cross-frame
+    // .focus() works in same-origin dev but the host owns its own a11y).
+    const t = triggerRef.current;
+    triggerRef.current = null;
+    if (t && typeof t.focus === 'function') {
+      try {
+        t.focus();
+      } catch {
+        // Cross-frame focus may throw — host listens for the dismissed
+        // message above and can re-focus its own trigger as a fallback.
+      }
+    }
   }, []);
 
   // Listen for host's edit-mode toggle (toolbar Tweaks button).
@@ -445,11 +470,26 @@ export function TweaksPanelRoot({ position = 'bottom-right' }) {
     const onMsg = (e) => {
       const t = e?.data?.type;
       if (t === '__activate_edit_mode') {
+        // Snapshot whatever has focus right now (typically the toolbar
+        // Tweaks button that the user just clicked) BEFORE the panel
+        // mounts and steals focus.
+        if (!triggerRef.current && typeof document !== 'undefined') {
+          triggerRef.current = document.activeElement;
+        }
         setActive(true);
         setOpen(true);
       } else if (t === '__deactivate_edit_mode') {
         setActive(false);
         setOpen(false);
+        const prev = triggerRef.current;
+        triggerRef.current = null;
+        if (prev && typeof prev.focus === 'function') {
+          try {
+            prev.focus();
+          } catch {
+            // ignore cross-frame focus errors
+          }
+        }
       }
     };
     window.addEventListener('message', onMsg);

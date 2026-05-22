@@ -322,6 +322,12 @@ Question kinds (Claude Design–aligned): `text-options` (pill chips + “Other�
 
 Optional: add stable `data-ds-anchor="hero-cta"` in `Design.jsx` for clearer agent references (runtime also assigns `data-ds-ref` on pick).
 
+### Debugging overrides
+
+Edit-mode overrides are applied at runtime by `OverridesInjector`, which writes a `<style>` tag inside `.design-canvas` containing `!important` rules keyed by `data-ds-ref`. That style tag carries a `data-ds-overrides` attribute pointing back to the override registry (the `byRef` map in `overrides.json`).
+
+When an element's inline style appears to be losing to an unexpected rule in DevTools, search the document for `data-ds-overrides` — that `<style>` tag is the source. From there you can map the `data-ds-ref` value on the offending selector back to the entry in `overrides.json` (`design-space overrides get`) and either edit the override or clear it.
+
 ## Prompts that work well
 
 - “Scaffold a design `pricing` with three artboard variants and a tweaks panel for brand color and font size.”

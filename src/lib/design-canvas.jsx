@@ -67,11 +67,13 @@ if (typeof document !== 'undefined' && !document.getElementById('dc-styles')) {
     '.dc-grip{flex:0 0 auto;cursor:grab;display:flex;align-items:center;padding:5px 4px;border-radius:4px;border:0;background:transparent;color:inherit;transition:background .12s,opacity .12s}',
     '.dc-grip:hover{background:rgba(0,0,0,.08)}',
     '.dc-grip:active{cursor:grabbing}',
-    '.dc-grip:focus-visible{outline:2px solid #c96442;outline-offset:1px;background:rgba(0,0,0,.06)}',
+    // Focus rings use the --ring design token so canvas chrome matches the
+    // host toolbar instead of hard-coding Claude orange.
+    '.dc-grip:focus-visible{outline:2px solid var(--ring);outline-offset:1px;background:rgba(0,0,0,.06)}',
     '.dc-labeltext{flex:1 1 auto;min-width:0;cursor:pointer;border-radius:4px;padding:3px 6px;',
     '  display:flex;align-items:center;transition:background .12s;overflow:hidden;',
     '  background:transparent;border:0;color:inherit;text-align:left;font:inherit}',
-    '.dc-labeltext:focus-visible{outline:2px solid #c96442;outline-offset:1px}',
+    '.dc-labeltext:focus-visible{outline:2px solid var(--ring);outline-offset:1px}',
     // Below ~4ch of label room: hide the label entirely, and drop the grip to
     // hover-only (same reveal rule as .dc-btns) so a narrow header is clean
     // until the card is moused. :focus-within reveals so keyboard users can

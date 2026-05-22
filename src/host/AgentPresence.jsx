@@ -109,12 +109,11 @@ export default function AgentPresence({ designName }) {
 
   return (
     <div
-      role="status"
       aria-label={`${label}${detail}`}
       title={lastEvent ? `Last event: ${lastEvent.type}${detail}` : 'No events recorded yet'}
       className="flex items-center gap-1.5 text-[11px] text-muted-foreground"
     >
-      <span className={cn('size-1.5 rounded-full transition-colors', dotClass)} />
+      <span aria-hidden="true" className={cn('size-2 rounded-full transition-colors', dotClass)} />
       <span className="tracking-tight">
         {label}
         {age != null && <span className="text-muted-foreground/70">{detail}</span>}

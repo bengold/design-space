@@ -26,7 +26,7 @@ import { cn } from '@/lib/utils';
 function ModePill({ children }) {
   return (
     <div
-      role="group"
+      role="radiogroup"
       aria-label="Modes"
       className="flex items-center rounded-lg border border-border bg-background p-0.5 shadow-xs"
     >
@@ -39,14 +39,15 @@ function ModePillButton({ active, onClick, title, children, badge, dot }) {
   return (
     <button
       type="button"
-      aria-pressed={active}
+      role="radio"
+      aria-checked={active}
       onClick={onClick}
       title={title}
       className={cn(
-        'inline-flex h-6 items-center gap-1.5 rounded-md px-2 text-[0.8rem] font-medium transition-colors',
+        'inline-flex h-6 items-center gap-1.5 rounded-md px-2 text-[0.8rem] font-medium transition-colors not-first:border-l not-first:border-border/60',
         active
-          ? 'bg-muted text-foreground shadow-xs'
-          : 'text-muted-foreground hover:bg-muted/60 hover:text-foreground',
+          ? 'bg-muted text-foreground shadow-xs ring-1 ring-foreground/10 ring-inset'
+          : 'text-muted-foreground hover:bg-muted/30 hover:text-foreground',
       )}
     >
       {children}
@@ -56,7 +57,10 @@ function ModePillButton({ active, onClick, title, children, badge, dot }) {
   );
 }
 
-function Kbd({ children }) {
+// Tooltip-scoped <kbd>. Assumes a dark popover surface (TooltipContent), so the
+// border/bg use background/foreground inverses. Don't use outside tooltips —
+// inline kbd elsewhere should pick a "muted" surface variant.
+function TooltipKbd({ children }) {
   return (
     <kbd
       data-slot="kbd"
@@ -147,32 +151,63 @@ export default function HostApp() {
   const openCount = filterOpenComments(bridge.comments).length;
   const activePageTitle = bridge.pages.find((p) => p.id === bridge.activePage)?.title ?? '—';
 
+  // Hoist sidebar callbacks so inline arrows don't blow ReviewSidebar's reload
+  // effect identity on every host render. Destructure stable bridge methods
+  // once and depend on those — not the bridge object itself.
+  const { updateComments, selectComment } = bridge;
+  const selectedCommentId = bridge.selectedCommentId;
+  const handleCommentsChange = useCallback(
+    (next) => {
+      updateComments(next);
+      const win = iframeRef.current?.contentWindow;
+      if (win) {
+        win.postMessage(
+          { type: '__comments_snapshot', comments: next, designName: activeDesign },
+          '*',
+        );
+      }
+      if (!next.some((c) => c.id === selectedCommentId)) {
+        selectComment(null);
+      }
+    },
+    [updateComments, selectComment, activeDesign, selectedCommentId],
+  );
+  const handleSidebarOpen = useCallback(() => {
+    clearPendingEvents();
+  }, [clearPendingEvents]);
+
   return (
     <TooltipProvider delay={300}>
       <div className="flex h-screen flex-col bg-background text-foreground font-sans">
         <header className="flex flex-shrink-0 items-center gap-3 border-b border-border px-4 py-2">
           {/* ── Cluster 1: Identity (brand · design · page) ──────────────── */}
           <div className="flex items-center gap-2">
-            <h1 className="text-sm font-bold tracking-tight">Design Space</h1>
+            <div className="text-sm font-bold tracking-tight">Design Space</div>
             {activeDesign && (
               <Badge variant="outline" className="font-mono text-[11px] tracking-tight">
-                designs/{activeDesign}
+                <h1 className="text-[11px] font-mono font-normal m-0">{activeDesign}</h1>
               </Badge>
             )}
             {bridge.pages.length > 1 && (
               <DropdownMenu>
-                <DropdownMenuTrigger
-                  render={
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      title={`Switch page (⌘[ / ⌘]) — ${bridge.pages.findIndex((p) => p.id === bridge.activePage) + 1} of ${bridge.pages.length}`}
-                    >
-                      <span>{activePageTitle}</span>
-                      <ChevronDown data-icon="inline-end" />
-                    </Button>
-                  }
-                />
+                <Tooltip>
+                  <TooltipTrigger
+                    render={
+                      <DropdownMenuTrigger
+                        render={
+                          <Button variant="outline" size="sm">
+                            <span>{activePageTitle}</span>
+                            <ChevronDown data-icon="inline-end" />
+                          </Button>
+                        }
+                      />
+                    }
+                  />
+                  <TooltipContent>
+                    Switch page<TooltipKbd>⌘[</TooltipKbd>
+                    <TooltipKbd>⌘]</TooltipKbd>
+                  </TooltipContent>
+                </Tooltip>
                 <DropdownMenuContent align="start" className="min-w-[200px]">
                   {bridge.pages.map((p, i) => {
                     const isActive = p.id === bridge.activePage;
@@ -193,12 +228,13 @@ export default function HostApp() {
                       </DropdownMenuItem>
                     );
                   })}
-                  <div className="mt-1 flex items-center justify-end gap-1 border-t px-2 pt-1.5 pb-0.5 text-[10px] text-muted-foreground">
-                    <span>Switch</span>
-                    <kbd className="inline-flex h-4 items-center rounded-sm border bg-muted px-1 font-mono text-[10px] leading-none">
+                  <div className="mt-1 flex items-center gap-1 border-t px-2 pt-1.5 pb-0.5 text-[10px]">
+                    <span className="text-muted-foreground">Previous</span>
+                    <kbd className="inline-flex h-4 items-center rounded-sm border border-border bg-muted px-1 font-mono text-[10px] leading-none">
                       ⌘[
                     </kbd>
-                    <kbd className="inline-flex h-4 items-center rounded-sm border bg-muted px-1 font-mono text-[10px] leading-none">
+                    <span className="text-muted-foreground">· Next</span>
+                    <kbd className="inline-flex h-4 items-center rounded-sm border border-border bg-muted px-1 font-mono text-[10px] leading-none">
                       ⌘]
                     </kbd>
                   </div>
@@ -215,22 +251,26 @@ export default function HostApp() {
           {/* ── Cluster 3: View (unified zoom dropdown with Fit) ────────── */}
           {bridge.canvasPresent && (
             <>
-              <Separator orientation="vertical" className="!h-5" />
+              {activeDesign && <Separator orientation="vertical" className="!h-5" />}
               <DropdownMenu>
-                <DropdownMenuTrigger
-                  render={
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      title="Zoom (⌘1 fit · ⌘0 100%)"
-                      className="min-w-[88px]"
-                    >
-                      <Maximize2 />
-                      <span className="tabular-nums">{bridge.zoomPercent}%</span>
-                      <ChevronDown data-icon="inline-end" />
-                    </Button>
-                  }
-                />
+                <Tooltip>
+                  <TooltipTrigger
+                    render={
+                      <DropdownMenuTrigger
+                        render={
+                          <Button variant="outline" size="sm" className="min-w-[88px]">
+                            <Maximize2 />
+                            <span className="tabular-nums">{bridge.zoomPercent}%</span>
+                            <ChevronDown data-icon="inline-end" />
+                          </Button>
+                        }
+                      />
+                    }
+                  />
+                  <TooltipContent>
+                    Zoom · Fit<TooltipKbd>⌘1</TooltipKbd>· 100%<TooltipKbd>⌘0</TooltipKbd>
+                  </TooltipContent>
+                </Tooltip>
                 <DropdownMenuContent align="end" className="min-w-[170px]">
                   <DropdownMenuItem onClick={bridge.fitToScreen}>
                     <Maximize2 className="size-3.5" />
@@ -288,7 +328,7 @@ export default function HostApp() {
                             dot={
                               bridge.pendingEvents > 0 && (
                                 <span
-                                  aria-label="Unread events"
+                                  aria-hidden
                                   className="ml-0.5 size-1.5 rounded-full bg-primary"
                                 />
                               )
@@ -296,11 +336,17 @@ export default function HostApp() {
                           >
                             <MessageSquare className="size-3.5" />
                             <span>Comments</span>
+                            {bridge.pendingEvents > 0 && (
+                              <span className="sr-only">
+                                {bridge.pendingEvents} unread{' '}
+                                {bridge.pendingEvents === 1 ? 'event' : 'events'}
+                              </span>
+                            )}
                           </ModePillButton>
                         }
                       />
                       <TooltipContent>
-                        Click elements to comment<Kbd>C</Kbd>
+                        Click elements to comment<TooltipKbd>C</TooltipKbd>
                       </TooltipContent>
                     </Tooltip>
                     <Tooltip>
@@ -316,7 +362,7 @@ export default function HostApp() {
                         }
                       />
                       <TooltipContent>
-                        Edit text &amp; styles · overrides.json<Kbd>E</Kbd>
+                        Edit text &amp; styles · overrides.json<TooltipKbd>E</TooltipKbd>
                       </TooltipContent>
                     </Tooltip>
                   </>
@@ -335,7 +381,7 @@ export default function HostApp() {
                       }
                     />
                     <TooltipContent>
-                      Live design values · per-design controls<Kbd>T</Kbd>
+                      Live design values · per-design controls<TooltipKbd>T</TooltipKbd>
                     </TooltipContent>
                   </Tooltip>
                 )}
@@ -377,26 +423,14 @@ export default function HostApp() {
                 <ReviewSidebar
                   designName={activeDesign}
                   comments={bridge.comments}
-                  selectedCommentId={bridge.selectedCommentId}
-                  onSelectComment={bridge.selectComment}
-                  onCommentsChange={(next) => {
-                    bridge.updateComments(next);
-                    const win = iframeRef.current?.contentWindow;
-                    if (win) {
-                      win.postMessage(
-                        { type: '__comments_snapshot', comments: next, designName: activeDesign },
-                        '*',
-                      );
-                    }
-                    if (!next.some((c) => c.id === bridge.selectedCommentId)) {
-                      bridge.selectComment(null);
-                    }
-                  }}
+                  selectedCommentId={selectedCommentId}
+                  onSelectComment={selectComment}
+                  onCommentsChange={handleCommentsChange}
                   onCopyExport={copyAgentContext}
                   onSendComment={bridge.requestSendComment}
                   onDeleteComment={bridge.requestDeleteComment}
                   onSendAllUnsent={bridge.requestSendAllUnsent}
-                  onOpen={() => bridge.clearPendingEvents()}
+                  onOpen={handleSidebarOpen}
                 />
               </div>
             </>
