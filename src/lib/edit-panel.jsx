@@ -211,10 +211,7 @@ function FieldShell({ inputId, label, children, className, invalid = false, erro
       data-invalid={invalid || undefined}
     >
       {label != null && (
-        <label
-          htmlFor={inputId}
-          className="shrink-0 cursor-default text-xs text-muted-foreground"
-        >
+        <label htmlFor={inputId} className="shrink-0 cursor-default text-xs text-muted-foreground">
           {label}
         </label>
       )}
@@ -442,7 +439,11 @@ function DocumentColorSwatches({ onPick }) {
   }, []);
   if (!colors?.length) return null;
   return (
-    <div className="mt-2 flex flex-wrap gap-1" role="group" aria-label="Colors used in this document">
+    <div
+      className="mt-2 flex flex-wrap gap-1"
+      role="group"
+      aria-label="Colors used in this document"
+    >
       {colors.map((c) => (
         <button
           key={c}
@@ -769,6 +770,103 @@ function SectionLabel({ children }) {
   );
 }
 
+// Style keys that count toward "has user-edited content" per section. When any
+// key here is set in `styles` (in-flight edits) or persisted `overrides.styles`,
+// the corresponding section defaults to open; otherwise it stays collapsed so
+// designers aren't faced with ~25 controls at once.
+const SECTION_KEYS = {
+  Typography: [
+    'fontFamily',
+    'fontSize',
+    'fontWeight',
+    'color',
+    'textAlign',
+    'lineHeight',
+    'letterSpacing',
+  ],
+  Size: ['width', 'height'],
+  Layout: ['display', 'gap', 'flexDirection', 'justifyContent', 'alignItems'],
+  Position: ['position', 'left', 'top', 'right', 'bottom'],
+  // Box matches any key starting with padding/margin/border, plus a fixed set.
+  Box: ['backgroundColor', 'background', 'opacity', 'borderRadius'],
+  Effects: ['boxShadow', 'transform'],
+};
+
+function isBoxKey(k) {
+  return (
+    k === 'backgroundColor' ||
+    k === 'background' ||
+    k === 'opacity' ||
+    k === 'borderRadius' ||
+    k.startsWith('padding') ||
+    k.startsWith('margin') ||
+    k.startsWith('border')
+  );
+}
+
+function hasOverrideForSection(section, ...maps) {
+  for (const m of maps) {
+    if (!m) continue;
+    const keys = Object.keys(m);
+    if (!keys.length) continue;
+    if (section === 'Box') {
+      if (keys.some((k) => isBoxKey(k) && m[k] !== '' && m[k] != null)) return true;
+      continue;
+    }
+    const allowed = SECTION_KEYS[section];
+    if (allowed && allowed.some((k) => m[k] !== '' && m[k] != null)) return true;
+  }
+  return false;
+}
+
+// Collapsible <section> for the element edit panel. Wraps content in a
+// Collapsible that's seeded from `defaultOpen` (sections with user-edited
+// values open by default; pristine sections collapse to reduce the ~25-control
+// dump). After mount, user toggles take over — defaultOpen only seeds initial
+// state. Chevron rotates on open, matching the SpacingBlock pattern.
+function SectionCollapsible({ title, defaultOpen, preview, swatch, children }) {
+  const [open, setOpen] = useState(Boolean(defaultOpen));
+  return (
+    <Collapsible open={open} onOpenChange={setOpen}>
+      <section className="flex flex-col gap-2">
+        <CollapsibleTrigger
+          render={(props) => (
+            <button
+              type="button"
+              {...props}
+              className={cn(ROW_CLS, 'w-full justify-between gap-2 text-left')}
+            >
+              <SectionLabel>{title}</SectionLabel>
+              <span className="ml-auto flex min-w-0 items-center gap-1.5">
+                {swatch ? (
+                  <span
+                    aria-hidden
+                    className="size-3 shrink-0 rounded-[3px] border border-border"
+                    style={{ background: swatch }}
+                  />
+                ) : null}
+                {preview ? (
+                  <span className="truncate text-[10px] text-muted-foreground">{preview}</span>
+                ) : null}
+                <ChevronDown
+                  aria-hidden
+                  className={cn(
+                    'size-3 shrink-0 text-muted-foreground transition-transform',
+                    open && 'rotate-180',
+                  )}
+                />
+              </span>
+            </button>
+          )}
+        />
+        <CollapsibleContent>
+          <div className="flex flex-col gap-2">{children}</div>
+        </CollapsibleContent>
+      </section>
+    </Collapsible>
+  );
+}
+
 // ─── body ────────────────────────────────────────────────────────────────────
 
 // Reads a computed value for display in field inputs without persisting it as an
@@ -791,7 +889,13 @@ function readComputed(el, key) {
 function computePositionModeSwitch(el, mode) {
   if (!el) return null;
   if (mode === 'static' || mode === 'relative') {
-    return { position: mode === 'static' ? '' : 'relative', left: '', top: '', right: '', bottom: '' };
+    return {
+      position: mode === 'static' ? '' : 'relative',
+      left: '',
+      top: '',
+      right: '',
+      bottom: '',
+    };
   }
   const r = el.getBoundingClientRect();
   if (mode === 'fixed') {
@@ -919,6 +1023,88 @@ function EditPanelBody({ el, overrides, onApply, onClose }) {
   const inDocFonts = useMemo(() => getDocumentFonts(), [el]);
   const { options: fontOptions, pickFont } = useFontOptions(styleOf('fontFamily'), inDocFonts);
 
+  // `defaultOpen` per section: open when the user has any in-flight edit OR a
+  // persisted override targeting that section's keys. These useMemos only seed
+  // initial state — SectionCollapsible owns its own open state thereafter, so
+  // user toggles aren't overwritten when `styles` updates.
+  const persistedStyles = (overrides[ref] && overrides[ref].styles) || null;
+  const openTypography = useMemo(
+    () => hasOverrideForSection('Typography', styles, persistedStyles),
+    [styles, persistedStyles],
+  );
+  const openSize = useMemo(
+    () => hasOverrideForSection('Size', styles, persistedStyles),
+    [styles, persistedStyles],
+  );
+  const openLayout = useMemo(
+    () => hasOverrideForSection('Layout', styles, persistedStyles),
+    [styles, persistedStyles],
+  );
+  const openPosition = useMemo(
+    () => hasOverrideForSection('Position', styles, persistedStyles),
+    [styles, persistedStyles],
+  );
+  const openBox = useMemo(
+    () => hasOverrideForSection('Box', styles, persistedStyles),
+    [styles, persistedStyles],
+  );
+  const openEffects = useMemo(
+    () => hasOverrideForSection('Effects', styles, persistedStyles),
+    [styles, persistedStyles],
+  );
+
+  // Section header previews — terse summaries shown when collapsed. Read via
+  // styleOf so they reflect both in-flight edits and computed values; depend on
+  // `styles` + `el` so they update on every edit / element change.
+  const typoPreview = useMemo(() => {
+    const size = styleOf('fontSize');
+    const weight = styleOf('fontWeight');
+    if (!size && !weight) return 'auto';
+    return [size, weight].filter(Boolean).join(' · ');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [styles, el]);
+  const sizePreview = useMemo(() => {
+    const w = styleOf('width');
+    const h = styleOf('height');
+    if (!w && !h) return 'auto';
+    const num = (v) => (v ? String(v).replace(/px$/, '') : 'auto');
+    return `${num(w)} × ${num(h)}`;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [styles, el]);
+  const layoutPreview = useMemo(() => {
+    const display = styleOf('display') || 'block';
+    if (FLEX_OR_GRID.has(display)) {
+      const dir = styleOf('flexDirection');
+      return dir ? `${display} · ${dir}` : display;
+    }
+    return display;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [styles, el]);
+  const positionPreview = useMemo(() => {
+    const pos = styleOf('position');
+    return pos && pos !== 'static' ? pos : '';
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [styles, el]);
+  const boxFill = useMemo(
+    () => styleOf('backgroundColor') || styleOf('background') || '',
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [styles, el],
+  );
+  const boxPreview = useMemo(() => {
+    const radius = styleOf('borderRadius');
+    if (!boxFill && !radius) return '—';
+    return radius ? `${radius} radius` : '';
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [boxFill, styles, el]);
+  const effectsPreview = useMemo(() => {
+    const transform = styleOf('transform');
+    const shadow = styleOf('boxShadow');
+    if (transform) return transform.length > 24 ? `${transform.slice(0, 24)}…` : transform;
+    if (shadow) return 'shadow';
+    return '—';
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [styles, el]);
+
   return (
     <>
       {previewStyle}
@@ -926,8 +1112,7 @@ function EditPanelBody({ el, overrides, onApply, onClose }) {
       {/* Scrollable body */}
       <ScrollArea className="min-h-0 flex-1">
         <div className="flex flex-col gap-4 p-4">
-          <section className="flex flex-col gap-2">
-            <SectionLabel>Typography</SectionLabel>
+          <SectionCollapsible title="Typography" defaultOpen={openTypography} preview={typoPreview}>
             <SelectRow
               label="Font"
               full
@@ -975,10 +1160,9 @@ function EditPanelBody({ el, overrides, onApply, onClose }) {
                 styleKey="letterSpacing"
               />
             </div>
-          </section>
+          </SectionCollapsible>
 
-          <section className="flex flex-col gap-2">
-            <SectionLabel>Size</SectionLabel>
+          <SectionCollapsible title="Size" defaultOpen={openSize} preview={sizePreview}>
             <div className="grid grid-cols-2 gap-2">
               <NumericRow
                 label="Width"
@@ -993,10 +1177,9 @@ function EditPanelBody({ el, overrides, onApply, onClose }) {
                 styleKey="height"
               />
             </div>
-          </section>
+          </SectionCollapsible>
 
-          <section className="flex flex-col gap-2">
-            <SectionLabel>Layout</SectionLabel>
+          <SectionCollapsible title="Layout" defaultOpen={openLayout} preview={layoutPreview}>
             <SelectRow
               label="Display"
               full
@@ -1032,10 +1215,9 @@ function EditPanelBody({ el, overrides, onApply, onClose }) {
                 />
               </div>
             ) : null}
-          </section>
+          </SectionCollapsible>
 
-          <section className="flex flex-col gap-2">
-            <SectionLabel>Position</SectionLabel>
+          <SectionCollapsible title="Position" defaultOpen={openPosition} preview={positionPreview}>
             <PositionRow el={el} styleOf={styleOf} setStyle={setStyle} />
             {styleOf('position') === 'absolute' ||
             styleOf('position') === 'fixed' ||
@@ -1055,10 +1237,14 @@ function EditPanelBody({ el, overrides, onApply, onClose }) {
                 />
               </div>
             ) : null}
-          </section>
+          </SectionCollapsible>
 
-          <section className="flex flex-col gap-2">
-            <SectionLabel>Box</SectionLabel>
+          <SectionCollapsible
+            title="Box"
+            defaultOpen={openBox}
+            preview={boxPreview}
+            swatch={boxFill || undefined}
+          >
             <ColorRow
               label="Fill"
               full
@@ -1107,10 +1293,9 @@ function EditPanelBody({ el, overrides, onApply, onClose }) {
               onChange={(v) => setStyle('borderRadius', v)}
               styleKey="borderRadius"
             />
-          </section>
+          </SectionCollapsible>
 
-          <section className="flex flex-col gap-2">
-            <SectionLabel>Effects</SectionLabel>
+          <SectionCollapsible title="Effects" defaultOpen={openEffects} preview={effectsPreview}>
             <TextRow
               label="Shadow"
               full
@@ -1125,7 +1310,7 @@ function EditPanelBody({ el, overrides, onApply, onClose }) {
               onChange={(v) => setStyle('transform', v)}
               placeholder="scale(1.05)"
             />
-          </section>
+          </SectionCollapsible>
 
           <Collapsible>
             <CssEditor cssText={cssText} setCssText={setCssText} cssError={cssError} />
@@ -1149,7 +1334,10 @@ function CssEditor({ cssText, setCssText, cssError }) {
             <label htmlFor={id} className="shrink-0 cursor-default text-xs text-muted-foreground">
               Custom CSS
             </label>
-            <span aria-hidden className="ml-auto truncate font-mono text-[10px] text-muted-foreground">
+            <span
+              aria-hidden
+              className="ml-auto truncate font-mono text-[10px] text-muted-foreground"
+            >
               {cssText ? `${cssText.slice(0, 28)}…` : 'none'}
             </span>
             <ChevronDown aria-hidden className="size-3 shrink-0 text-muted-foreground" />

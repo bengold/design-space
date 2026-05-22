@@ -89,14 +89,18 @@ export default function AgentPresence({ designName }) {
           ? 'recent'
           : 'idle';
 
-  const label =
+  // Turn the raw event type into a phrase that names *what* the agent did, so
+  // the chrome conveys activity instead of stale connectivity. The timestamp
+  // moves into the tooltip — visible-on-demand, off the constantly-ticking
+  // critical path.
+  const activityLabel =
     state === 'active'
-      ? 'Agent active'
+      ? eventActivityPhrase(lastEvent)
       : state === 'recent'
-        ? 'Agent recent'
+        ? 'Agent watching'
         : lastAtMs
           ? 'Agent idle'
-          : 'No activity';
+          : 'Agent ready';
 
   const dotClass =
     state === 'active'
@@ -110,15 +114,43 @@ export default function AgentPresence({ designName }) {
   return (
     <div
       role="status"
-      aria-label={`${label}${detail}`}
-      title={lastEvent ? `Last event: ${lastEvent.type}${detail}` : 'No events recorded yet'}
+      aria-label={`${activityLabel}${detail}`}
+      title={
+        lastEvent
+          ? `Last event: ${lastEvent.type}${detail}`
+          : 'No events recorded yet — the agent will appear here when it acts'
+      }
       className="flex items-center gap-1.5 text-[11px] text-muted-foreground"
     >
       <span className={cn('size-1.5 rounded-full transition-colors', dotClass)} />
-      <span className="tracking-tight">
-        {label}
-        {age != null && <span className="text-muted-foreground/70">{detail}</span>}
-      </span>
+      <span className="tracking-tight">{activityLabel}</span>
     </div>
   );
+}
+
+// Map event.type → short present-tense phrase. Falls back to "Agent active" so
+// new event types don't fail loud; the title tooltip still surfaces the raw
+// type for debugging.
+function eventActivityPhrase(ev) {
+  if (!ev?.type) return 'Agent active';
+  switch (ev.type) {
+    case 'comment.sent':
+    case 'comment.added':
+      return 'Routed a comment';
+    case 'comment.resolved':
+      return 'Resolved a comment';
+    case 'overrides.changed':
+      return 'Editing styles';
+    case 'tweaks.changed':
+      return 'Tuning tweaks';
+    case 'questions.asked':
+      return 'Asked a question';
+    case 'questions.answered':
+      return 'Got your answer';
+    case 'design.saved':
+    case 'persist.write':
+      return 'Saved changes';
+    default:
+      return 'Agent active';
+  }
 }

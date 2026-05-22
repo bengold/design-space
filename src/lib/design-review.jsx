@@ -131,16 +131,54 @@ function OverridesInjector({ byRef, canvas }) {
   return <style data-ds-overrides>{css}</style>;
 }
 
+// Friendly label precedence: quoted innerText (≤36 chars, longer → truncated to 32 + …),
+// else a noun-y tag alias (link/button/text input/image/heading/icon), else the raw tag.
+// Appends ` · ${artboardLabel}` (or artboardId fallback) when an artboard is known.
+function friendlyTargetLabel(ctx) {
+  if (!ctx) return 'element';
+  const text = typeof ctx.text === 'string' ? ctx.text.trim() : '';
+  let primary;
+  if (text) {
+    primary = text.length <= 36 ? `"${text}"` : `"${text.slice(0, 32).trimEnd()}…"`;
+  } else {
+    const tag = (ctx.tag || '').toLowerCase();
+    if (tag === 'a') primary = 'link';
+    else if (tag === 'button') primary = 'button';
+    else if (tag === 'input' || tag === 'textarea') primary = 'text input';
+    else if (tag === 'img') primary = 'image';
+    else if (/^h[1-6]$/.test(tag)) primary = 'heading';
+    else if (tag === 'svg') primary = 'icon';
+    else primary = tag || 'element';
+  }
+  const where = ctx.artboardLabel || ctx.artboardId;
+  return where ? `${primary} · ${where}` : primary;
+}
+
 function ContextList({ contexts }) {
   if (!contexts.length) return null;
   return (
-    <ul className="m-0 list-disc pl-4 text-xs text-foreground/80">
+    <ul className="m-0 list-none space-y-1 p-0 text-xs text-foreground/80">
       {contexts.slice(0, 5).map((ctx) => (
-        <li key={ctx.ref} className="font-mono">
-          {ctx.dom}
+        <li key={ctx.ref}>
+          <details className="group">
+            <summary className="flex cursor-pointer list-none items-center gap-1 text-foreground/80 [&::-webkit-details-marker]:hidden">
+              <span className="truncate">{friendlyTargetLabel(ctx)}</span>
+              <span className="text-[10px] text-muted-foreground/70 group-open:hidden">
+                selector
+              </span>
+              <span className="hidden text-[10px] text-muted-foreground/70 group-open:inline">
+                hide
+              </span>
+            </summary>
+            <div className="mt-0.5 break-all font-mono text-[11px] text-muted-foreground">
+              {ctx.dom}
+            </div>
+          </details>
         </li>
       ))}
-      {contexts.length > 5 && <li>+{contexts.length - 5} more</li>}
+      {contexts.length > 5 && (
+        <li className="text-muted-foreground">+{contexts.length - 5} more</li>
+      )}
     </ul>
   );
 }
@@ -464,8 +502,7 @@ const CommentPin = React.forwardRef(function CommentPin(
         'ds-review-ui fixed z-40 grid size-7 -translate-x-1/2 -translate-y-1/2 cursor-pointer place-items-center rounded-full border-2 bg-primary text-[11px] font-bold text-primary-foreground shadow-md transition-transform',
         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background',
         isSent ? 'border-dashed border-primary-foreground/70' : 'border-background',
-        selected &&
-          'ring-2 ring-primary ring-offset-2 ring-offset-background scale-110',
+        selected && 'ring-2 ring-primary ring-offset-2 ring-offset-background scale-110',
       )}
       style={{ left: pos.left, top: pos.top }}
       onClick={onSelect}
@@ -1101,17 +1138,10 @@ export function DesignReviewShell({ designName, children }) {
         }}
       />
 
-      {showHint && (
-        <ModeHint commentMode={commentMode} hasSelection={selectedEls.length > 0} />
-      )}
+      {showHint && <ModeHint commentMode={commentMode} hasSelection={selectedEls.length > 0} />}
 
       {/* Live region for AT — announces comment add/send/delete. Visually hidden. */}
-      <div
-        className="ds-review-ui sr-only"
-        role="status"
-        aria-live="polite"
-        aria-atomic="true"
-      >
+      <div className="ds-review-ui sr-only" role="status" aria-live="polite" aria-atomic="true">
         {announcement}
       </div>
     </ReviewCtx.Provider>

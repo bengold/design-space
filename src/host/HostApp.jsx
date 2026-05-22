@@ -87,6 +87,18 @@ export default function HostApp() {
     setSidebarOpen(bridge.commentMode);
   }, [bridge.commentMode]);
 
+  // Fit the canvas to the viewport once on first ready. Default zoom of 100%
+  // leaves a half-screen of empty space above the artboard row; fit-to-screen
+  // centers the work and gives the user something to look at.
+  const fittedRef = useRef(false);
+  const { canvasPresent, fitToScreen } = bridge;
+  useEffect(() => {
+    if (fittedRef.current) return;
+    if (!canvasPresent) return;
+    fittedRef.current = true;
+    fitToScreen();
+  }, [canvasPresent, fitToScreen]);
+
   const { pollQuestions } = bridge;
   useEffect(() => {
     pollQuestions(activeDesign);
@@ -306,10 +318,7 @@ export default function HostApp() {
                     <Tooltip>
                       <TooltipTrigger
                         render={
-                          <ModePillButton
-                            active={bridge.editMode}
-                            onClick={bridge.toggleEditMode}
-                          >
+                          <ModePillButton active={bridge.editMode} onClick={bridge.toggleEditMode}>
                             <Pencil className="size-3.5" />
                             <span>Edit</span>
                           </ModePillButton>
@@ -325,10 +334,7 @@ export default function HostApp() {
                   <Tooltip>
                     <TooltipTrigger
                       render={
-                        <ModePillButton
-                          active={bridge.tweaksOpen}
-                          onClick={bridge.toggleTweaks}
-                        >
+                        <ModePillButton active={bridge.tweaksOpen} onClick={bridge.toggleTweaks}>
                           <Sliders className="size-3.5" />
                           <span>Tweaks</span>
                         </ModePillButton>
